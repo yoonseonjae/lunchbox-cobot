@@ -112,10 +112,10 @@ class SubDishStage(BaseStage):
             self._tick(f"🥗 [{self.dish_name}] 집기", done=True)
 
             # 들어올림
-            if not self._amovel(wp["up_pick_l"],         f"🥗 [{self.dish_name}] 들어올림"):     return StageResult.STOPPED
+            if not self._amovel(wp["up_pick_l"],         f"🥗 [{self.dish_name}] 들어올림", r=50):     return StageResult.STOPPED
 
             # 식판 슬롯 이동 (관절) → 놓기 (직선)
-            if not self._amovej(wp["pre_place_j"],       f"🥗 [{self.dish_name}] 슬롯 접근"):    return StageResult.STOPPED
+            if not self._amovej(wp["pre_place_j"],       f"🥗 [{self.dish_name}] 슬롯 접근", r=50):    return StageResult.STOPPED
             if not self._movel(wp["place_l"],           f"🥗 [{self.dish_name}] 놓기"):         return StageResult.STOPPED
 
             # 놓기

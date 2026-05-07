@@ -71,12 +71,12 @@ class BaseStage(ABC):
             self._tick(label)
         return self._ok()
 
-    def _amovej(self, coords: List[float], label: str = "") -> bool:
+    def _amovej(self, coords: List[float], r: int, label: str = "") -> bool:
         """관절 비동기 이동 (amovej + mwait). 비상정지 시 False 반환."""
         if not self._ok():
             return False
         try:
-            self.rc.amovej(coords)
+            self.rc.amovej(coords, r)
         except Exception as e:
             print(f"[{self.name}] _amovej 오류: {e}")
             return False
@@ -97,12 +97,12 @@ class BaseStage(ABC):
             self._tick(label)
         return self._ok()
 
-    def _amovel(self, coords: List[float], label: str = "") -> bool:
+    def _amovel(self, coords: List[float], r, label: str = "") -> bool:
         """태스크 비동기 이동 (amovel + mwait). 비상정지 시 False 반환"""
         if not self._ok():
             return False
         try:
-            self.rc.amovel(coords)
+            self.rc.amovel(coords, r)
         except Exception as e:
             print(f"[{self.name}] _amovel 오류: {e}")
             return False

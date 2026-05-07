@@ -84,9 +84,9 @@ class RobotClient:
         self._movej(self._posj(coords), vel=self.vel, acc=self.acc, r=r)
         self._mwait()
 
-    def amovej(self, coords: List[float]):
+    def amovej(self, coords: List[float], r):
         """관절 이동 (비동기 발행 후 mwait). plate_finish_a [010] 구간에 사용."""
-        self._amovej(self._posj(coords), vel=self.vel, acc=self.acc)
+        self._amovej(self._posj(coords), vel=self.vel, acc=self.acc, r=r)
         self._mwait()
 
     def movel(self, coords: List[float], r):
@@ -98,9 +98,9 @@ class RobotClient:
             ref=self._DR_BASE,
         )
         self._mwait()
-    def amovel(self, coords: List[float]):
+    def amovel(self, coords: List[float], r):
         """직선(Cartesian) 이동 (비동기)"""
-        self._amovel(self._posx(coords), vel=self.vel, acc=self.acc)
+        self._amovel(self._posx(coords), vel=self.vel, acc=self.acc, r=r)
         self._mwait()
 
     # ── 그리퍼 ───────────────────────────────────────────────────
