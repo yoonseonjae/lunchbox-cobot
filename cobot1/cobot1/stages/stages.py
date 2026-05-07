@@ -112,10 +112,10 @@ class SubDishStage(BaseStage):
             self._tick(f"🥗 [{self.dish_name}] 집기", done=True)
 
             # 들어올림
-            if not self._movel(wp["up_pick_l"],         f"🥗 [{self.dish_name}] 들어올림"):     return StageResult.STOPPED
+            if not self._amovel(wp["up_pick_l"],         f"🥗 [{self.dish_name}] 들어올림"):     return StageResult.STOPPED
 
             # 식판 슬롯 이동 (관절) → 놓기 (직선)
-            if not self._movej(wp["pre_place_j"],       f"🥗 [{self.dish_name}] 슬롯 접근"):    return StageResult.STOPPED
+            if not self._amovej(wp["pre_place_j"],       f"🥗 [{self.dish_name}] 슬롯 접근"):    return StageResult.STOPPED
             if not self._movel(wp["place_l"],           f"🥗 [{self.dish_name}] 놓기"):         return StageResult.STOPPED
 
             # 놓기
@@ -289,7 +289,7 @@ class DeliveryStage(BaseStage):
             if not self._movel(c5["p007_l"],  "📦 [5/5] 들어올림"):       return StageResult.STOPPED
             if not self._movej(c5["p008_j"],  "📦 [5/5] 이동1"):          return StageResult.STOPPED
             if not self._movel(c5["p009_l"],  "📦 [5/5] 픽업장소 접근"):   return StageResult.STOPPED
-            if not self._amovej(c5["p010_j"], "📦 [5/5] 이동2"):          return StageResult.STOPPED
+            if not self._movej(c5["p010_j"],  "📦 [5/5] 이동2"):          return StageResult.STOPPED
             if not self._movel(c5["p011_l"],  "📦 [5/5] 안착 준비"):      return StageResult.STOPPED
             if not self._movej(c5["p012_j"],  "📦 [5/5] 안착 위치"):      return StageResult.STOPPED
 

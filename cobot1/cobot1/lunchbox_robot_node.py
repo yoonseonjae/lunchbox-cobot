@@ -49,7 +49,7 @@ def main(args=None):
     # ── 2. DSR_ROBOT2 import (노드 생성 이후에만 가능) ─────────────────────
     try:
         from DSR_ROBOT2 import (
-            movej, movel, mwait, amovej,
+            movej, movel, mwait, amovej, amovel,
             set_tool, set_tcp,
             set_digital_output, get_digital_input,
             wait,
@@ -75,7 +75,7 @@ def main(args=None):
         acc = coord_mgr.acceleration,
     )
     robot_client.inject(
-        movej, movel, mwait, amovej,
+        movej, movel, mwait, amovej, amovel,
         set_digital_output, get_digital_input,
         wait, drl_script_stop,
         posj, posx, DR_BASE,

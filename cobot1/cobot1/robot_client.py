@@ -60,7 +60,7 @@ class RobotClient:
         self._DR_BASE            = None
 
     def inject(self,
-               movej, movel, mwait, amovej,
+               movej, movel, mwait, amovej, amovel,
                set_digital_output, get_digital_input,
                wait, drl_script_stop,
                posj, posx, DR_BASE):
@@ -69,6 +69,7 @@ class RobotClient:
         self._movel              = movel
         self._mwait              = mwait
         self._amovej             = amovej
+        self._amovel             = amovel
         self._set_digital_output = set_digital_output
         self._get_digital_input  = get_digital_input
         self._wait               = wait
@@ -95,6 +96,10 @@ class RobotClient:
             vel=self.vel, acc=self.acc,
             ref=self._DR_BASE,
         )
+        self._mwait()
+    def amovel(self, coords: List[float]):
+        """직선(Cartesian) 이동 (비동기)"""
+        self._amovel(self._posx(coords), vel=self.vel, acc=self.acc)
         self._mwait()
 
     # ── 그리퍼 ───────────────────────────────────────────────────
