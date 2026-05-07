@@ -79,9 +79,9 @@ class RobotClient:
         self._DR_BASE            = DR_BASE
 
     # ── 이동 ──────────────────────────────────────────────────────
-    def movej(self, coords: List[float]):
+    def movej(self, coords: List[float], r):
         """관절 이동 (동기)."""
-        self._movej(self._posj(coords), vel=self.vel, acc=self.acc)
+        self._movej(self._posj(coords), vel=self.vel, acc=self.acc, r=r)
         self._mwait()
 
     def amovej(self, coords: List[float]):
@@ -89,11 +89,12 @@ class RobotClient:
         self._amovej(self._posj(coords), vel=self.vel, acc=self.acc)
         self._mwait()
 
-    def movel(self, coords: List[float]):
+    def movel(self, coords: List[float], r):
         """직선(Cartesian) 이동 (동기)."""
         self._movel(
             self._posx(coords),
             vel=self.vel, acc=self.acc,
+            r=r,
             ref=self._DR_BASE,
         )
         self._mwait()

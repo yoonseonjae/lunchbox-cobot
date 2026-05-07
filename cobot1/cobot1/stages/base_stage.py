@@ -58,12 +58,12 @@ class BaseStage(ABC):
         return not self.sm.is_stopped()
 
     # ── 이동 헬퍼 ─────────────────────────────────────────────────
-    def _movej(self, coords: List[float], label: str = "") -> bool:
+    def _movej(self, coords: List[float], r: int, label: str = "") -> bool:
         """관절 이동. 비상정지 시 False 반환."""
         if not self._ok():
             return False
         try:
-            self.rc.movej(coords)
+            self.rc.movej(coords, r)
         except Exception as e:
             print(f"[{self.name}] _movej 오류: {e}")
             return False
@@ -84,12 +84,12 @@ class BaseStage(ABC):
             self._tick(label)
         return self._ok()
 
-    def _movel(self, coords: List[float], label: str = "") -> bool:
+    def _movel(self, coords: List[float], r: int, label: str = "") -> bool:
         """직선(Cartesian) 이동. 비상정지 시 False 반환."""
         if not self._ok():
             return False
         try:
-            self.rc.movel(coords)
+            self.rc.movel(coords, r)
         except Exception as e:
             print(f"[{self.name}] _movel 오류: {e}")
             return False

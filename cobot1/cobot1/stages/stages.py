@@ -103,8 +103,8 @@ class SubDishStage(BaseStage):
             self._gripper(100)
 
             # 반찬통 접근 (관절) → 픽 위치 (직선)
-            if not self._movej(wp["pre_pick_j"],        f"🥗 [{self.dish_name}] 픽 준비"):      return StageResult.STOPPED
-            if not self._movel(wp["pick_l"],            f"🥗 [{self.dish_name}] 픽 위치"):      return StageResult.STOPPED
+            if not self._movej(wp["pre_pick_j"],        f"🥗 [{self.dish_name}] 픽 준비", r=50):      return StageResult.STOPPED
+            if not self._movel(wp["pick_l"],            f"🥗 [{self.dish_name}] 픽 위치", r=50):      return StageResult.STOPPED
 
             # 집기
             self._gripper(20)
