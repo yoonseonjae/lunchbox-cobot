@@ -71,6 +71,19 @@ class BaseStage(ABC):
             self._tick(label)
         return self._ok()
 
+    def _amovej(self, coords: List[float], label: str = "") -> bool:
+        """관절 비동기 이동 (amovej + mwait). 비상정지 시 False 반환."""
+        if not self._ok():
+            return False
+        try:
+            self.rc.amovej(coords)
+        except Exception as e:
+            print(f"[{self.name}] _amovej 오류: {e}")
+            return False
+        if label:
+            self._tick(label)
+        return self._ok()
+
     def _movel(self, coords: List[float], label: str = "") -> bool:
         """직선(Cartesian) 이동. 비상정지 시 False 반환."""
         if not self._ok():

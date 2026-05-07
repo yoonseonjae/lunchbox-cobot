@@ -60,7 +60,7 @@ class RobotClient:
         self._DR_BASE            = None
 
     def inject(self,
-               movej, movel, mwait,
+               movej, movel, mwait, amovej,
                set_digital_output, get_digital_input,
                wait, drl_script_stop,
                posj, posx, DR_BASE):
@@ -68,6 +68,7 @@ class RobotClient:
         self._movej              = movej
         self._movel              = movel
         self._mwait              = mwait
+        self._amovej             = amovej
         self._set_digital_output = set_digital_output
         self._get_digital_input  = get_digital_input
         self._wait               = wait
@@ -80,6 +81,11 @@ class RobotClient:
     def movej(self, coords: List[float]):
         """관절 이동 (동기)."""
         self._movej(self._posj(coords), vel=self.vel, acc=self.acc)
+        self._mwait()
+
+    def amovej(self, coords: List[float]):
+        """관절 이동 (비동기 발행 후 mwait). plate_finish_a [010] 구간에 사용."""
+        self._amovej(self._posj(coords), vel=self.vel, acc=self.acc)
         self._mwait()
 
     def movel(self, coords: List[float]):

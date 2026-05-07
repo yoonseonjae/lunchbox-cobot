@@ -289,7 +289,7 @@ class DeliveryStage(BaseStage):
             if not self._movel(c5["p007_l"],  "📦 [5/5] 들어올림"):       return StageResult.STOPPED
             if not self._movej(c5["p008_j"],  "📦 [5/5] 이동1"):          return StageResult.STOPPED
             if not self._movel(c5["p009_l"],  "📦 [5/5] 픽업장소 접근"):   return StageResult.STOPPED
-            if not self._movej(c5["p010_j"],  "📦 [5/5] 이동2"):          return StageResult.STOPPED
+            if not self._amovej(c5["p010_j"], "📦 [5/5] 이동2"):          return StageResult.STOPPED
             if not self._movel(c5["p011_l"],  "📦 [5/5] 안착 준비"):      return StageResult.STOPPED
             if not self._movej(c5["p012_j"],  "📦 [5/5] 안착 위치"):      return StageResult.STOPPED
 
