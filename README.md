@@ -125,21 +125,30 @@ pip install firebase-admin flask opencv-python aiohttp
 
 ### 실행 순서
 ```bash
-# 1. 로봇 드라이버 + RViz
+# Terminal 1 — DSR 드라이버
+cd ~/cobot_ws && source install/setup.bash
 ros2 launch dsr_bringup2 dsr_bringup2_rviz.launch.py \
-    model:=m0609 mode:=real host:=192.168.1.100 port:=12345
+    model:=m0609 mode:=real host:=192.168.137.100 port:=12345
 
-# 2. 메인 로봇 제어 노드
+# Terminal 2 — 메인 로봇 노드
+cd ~/cobot_ws && source install/setup.bash
 ros2 run cobot1 lunchbox_robot_node
+# → [Main] ✅ 홈 이동 완료 확인 후
 
-# 3. Firebase ↔ ROS2 브릿지
+# Terminal 3 — Firebase ↔ ROS2 브릿지  ← 순서 변경
+cd ~/cobot_ws && source install/setup.bash
 ros2 run cobot1 lunchbox_database_node
 
-# 4. 모니터링 대시보드
+# Terminal 4 — 관리자 웹 대시보드  ← 순서 변경
+cd ~/cobot_ws && source install/setup.bash
 ros2 run cobot1 robot_dashboard
 
-# 5. CCTV 카메라 스트리밍
+# Terminal 5 — 카메라 스트림
+cd ~/cobot_ws && source install/setup.bash
 ros2 run cobot1 camera_stream_server
+
+# Browser
+xdg-open file:///home/yoon/cobot_ws/src/lunchbox_web/admin_index.html
 ```
 
 ---
