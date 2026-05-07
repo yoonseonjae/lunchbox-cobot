@@ -1,0 +1,33 @@
+# Firebase 비밀 키 (절대 업로드 금지)
+**/serviceAccountKey.json
+**/serviceAccount*.json
+**/*firebase*adminsdk*.json
+
+# doosan-robot2 (외부 패키지, 용량 큼)
+doosan-robot2/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+*.so
+
+# ROS2 빌드 산출물
+install/
+build/
+log/
+
+# Node / Web
+node_modules/
+.env
+.env.local
+*.zip
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~

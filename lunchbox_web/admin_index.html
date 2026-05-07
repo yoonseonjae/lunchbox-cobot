@@ -1,0 +1,1154 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <title>나만의 도련님 도시락 - 관리자 대시보드</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html, body {
+            height: 100%;
+            margin: 0;
+        }
+
+        body {
+            font-family: 'Consolas', 'Monaco', monospace;
+            background: #0d1117;
+            color: #c9d1d9;
+            padding: 0;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ===== 헤더 ===== */
+        .header {
+            background: linear-gradient(90deg, #161b22, #21262d);
+            padding: 6px 16px;
+            border-bottom: 2px solid #30363d;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        .header h1 {
+            font-size: 1.0em;
+            color: #58a6ff;
+        }
+
+        .header h1 span {
+            color: #f0883e;
+        }
+
+        .status-area {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .badge {
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-size: 0.75em;
+            font-weight: bold;
+            border: 1px solid;
+        }
+
+        .badge-fb-on {
+            background: #033a16;
+            color: #3fb950;
+            border-color: #2ea043;
+        }
+
+        .badge-fb-off {
+            background: #4b1a1a;
+            color: #f85149;
+            border-color: #da3633;
+        }
+
+        .badge-robot-idle {
+            background: #1a3a4d;
+            color: #58a6ff;
+            border-color: #1f6feb;
+        }
+
+        .badge-robot-moving {
+            background: #4d3a1a;
+            color: #f0883e;
+            border-color: #d29922;
+        }
+
+        .badge-robot-error {
+            background: #4b1a1a;
+            color: #f85149;
+            border-color: #da3633;
+        }
+
+        .clock {
+            color: #8b949e;
+            font-size: 0.9em;
+        }
+
+        .estop-btn {
+            background: #da3633;
+            color: white;
+            border: none;
+            padding: 5px 12px;
+            font-weight: bold;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.8em;
+        }
+
+        .estop-btn:hover {
+            background: #f85149;
+        }
+
+        /* ===== 메인 그리드 ===== */
+        .container {
+            padding: 6px 10px;
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 1fr;
+            grid-template-rows: 72px auto minmax(0, 1fr);
+            gap: 6px;
+            flex: 1;
+            min-height: 0;
+            overflow: hidden;
+        }
+
+        .card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            padding: 8px 10px;
+            min-height: 0;
+            overflow: hidden;
+        }
+
+        .card-title {
+            font-size: 0.78em;
+            color: #58a6ff;
+            margin-bottom: 4px;
+            border-bottom: 1px solid #30363d;
+            padding-bottom: 3px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* ===== KPI 카드 ===== */
+        .kpi-value {
+            font-size: 1.4em;
+            font-weight: bold;
+            margin-top: 2px;
+            white-space: nowrap;
+        }
+
+        .kpi-pending {
+            color: #f0883e;
+        }
+
+        .kpi-processing {
+            color: #58a6ff;
+        }
+
+        .kpi-completed {
+            color: #3fb950;
+        }
+
+        .kpi-error {
+            color: #f85149;
+        }
+
+        /* ===== 주문 큐 ===== */
+        .order-queue {
+            grid-column: span 1;
+            overflow: hidden;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.75em;
+        }
+
+        th,
+        td {
+            text-align: left;
+            padding: 3px 4px;
+            border-bottom: 1px solid #21262d;
+        }
+
+        th {
+            color: #8b949e;
+            font-weight: normal;
+            font-size: 0.75em;
+        }
+
+        .status-pill {
+            padding: 3px 8px;
+            border-radius: 10px;
+            font-size: 0.75em;
+            font-weight: bold;
+        }
+
+        .pill-pending {
+            background: #4d3a1a;
+            color: #f0883e;
+        }
+
+        .pill-processing {
+            background: #1a3a4d;
+            color: #58a6ff;
+        }
+
+        .pill-completed {
+            background: #033a16;
+            color: #3fb950;
+        }
+
+        .pill-error {
+            background: #4b1a1a;
+            color: #f85149;
+        }
+
+        .row-btn {
+            background: transparent;
+            border: 1px solid #30363d;
+            color: #c9d1d9;
+            padding: 3px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.75em;
+            margin-right: 3px;
+        }
+
+        .row-btn:hover {
+            background: #21262d;
+        }
+
+        .row-btn-danger:hover {
+            background: #4b1a1a;
+            color: #f85149;
+        }
+
+        /* ===== 로봇 상태 ===== */
+        .robot-status {
+            grid-column: span 1;
+            overflow: hidden;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 2px 0;
+            font-size: 0.78em;
+        }
+
+        .info-row span:first-child {
+            color: #8b949e;
+        }
+
+        .info-row span:last-child {
+            color: #c9d1d9;
+            font-weight: bold;
+        }
+
+        .joint-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 3px;
+            margin-top: 4px;
+        }
+
+        .joint-cell {
+            background: #0d1117;
+            border: 1px solid #30363d;
+            padding: 3px;
+            text-align: center;
+            border-radius: 4px;
+            font-size: 0.72em;
+        }
+
+        .joint-cell .label {
+            color: #8b949e;
+            font-size: 0.85em;
+        }
+
+        .joint-cell .value {
+            color: #58a6ff;
+            font-weight: bold;
+            margin-top: 2px;
+        }
+
+        .ctrl-btns {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4px;
+            margin-top: 6px;
+        }
+
+        .ctrl-btn {
+            background: #21262d;
+            border: 1px solid #30363d;
+            color: #c9d1d9;
+            padding: 4px 6px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.75em;
+        }
+
+        .ctrl-btn:hover {
+            background: #30363d;
+        }
+
+        .ctrl-btn-blue {
+            border-color: #1f6feb;
+            color: #58a6ff;
+        }
+
+        .ctrl-btn-orange {
+            border-color: #d29922;
+            color: #f0883e;
+        }
+
+        /* ===== Raw DB 뷰어 ===== */
+        .raw-viewer {
+            grid-column: span 4;
+        }
+
+        .raw-toolbar {
+            margin-bottom: 4px;
+            display: flex;
+            gap: 6px;
+            justify-content: flex-end;
+            align-items: center;
+        }
+
+        pre {
+            background: #0d1117;
+            border: 1px solid #30363d;
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 0.75em;
+            color: #c9d1d9;
+            max-height: 80px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+
+        /* ===== 메뉴 설정 ===== */
+        .menu-config {
+            grid-column: span 4;
+        }
+
+        .menu-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .menu-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+
+        .menu-tag {
+            background: #21262d;
+            border: 1px solid #30363d;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75em;
+        }
+
+        .tag-sub {
+            color: #58a6ff;
+            border-color: #1f6feb;
+        }
+
+        .tag-main {
+            color: #f0883e;
+            border-color: #d29922;
+        }
+
+        /* ===== CCTV ===== */
+        .cctv {
+            grid-column: span 2;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        .cctv-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 4px;
+        }
+
+        .cctv-rec {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.8em;
+            color: #f85149;
+            font-weight: bold;
+        }
+
+        .cctv-rec::before {
+            content: "●";
+            animation: blink 1.2s infinite;
+        }
+
+        @keyframes blink {
+
+            0%,
+            50% {
+                opacity: 1;
+            }
+
+            51%,
+            100% {
+                opacity: 0.2;
+            }
+        }
+
+        .cctv-frame {
+            position: relative;
+            background: #000;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            overflow: hidden;
+            flex: 1;
+            min-height: 0;
+        }
+
+        .cctv-frame img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .cctv-overlay {
+            position: absolute;
+            top: 8px;
+            left: 10px;
+            color: #fff;
+            font-size: 0.85em;
+            text-shadow: 0 0 4px #000;
+            font-family: monospace;
+            pointer-events: none;
+        }
+
+        .cctv-overlay.tr {
+            top: 8px;
+            left: auto;
+            right: 10px;
+        }
+
+        .cctv-noframe {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            height: 100%;
+            color: #6e7681;
+            font-size: 0.9em;
+        }
+
+        .cctv-config {
+            margin-top: 4px;
+            display: flex;
+            gap: 4px;
+            align-items: center;
+        }
+
+        .cctv-config input {
+            flex: 1;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            color: #c9d1d9;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-family: 'Consolas', monospace;
+            font-size: 0.75em;
+        }
+    </style>
+    <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+        "three/examples/jsm/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+    </script>
+</head>
+
+<body>
+    <!-- ===== 헤더 ===== -->
+    <header class="header">
+        <h1>🍱 나만의 도련님 도시락 <span>· 관리자 대시보드</span></h1>
+        <div class="status-area">
+            <span id="badge-fb" class="badge badge-fb-off">🔴 Firebase</span>
+            <span id="badge-robot" class="badge badge-robot-idle">🤖 IDLE</span>
+            <span id="clock" class="clock">--:--:--</span>
+            <button class="estop-btn" onclick="sendEStop()">🛑 비상정지</button>
+        </div>
+    </header>
+
+    <!-- ===== 메인 영역 ===== -->
+    <div class="container">
+
+        <!-- KPI 4종 -->
+        <div class="card">
+            <div class="card-title">📋 대기 (pending)</div>
+            <div id="kpi-pending" class="kpi-value kpi-pending">0</div>
+        </div>
+        <div class="card">
+            <div class="card-title">🔄 처리 중 (processing)</div>
+            <div id="kpi-processing" class="kpi-value kpi-processing">0</div>
+        </div>
+        <div class="card">
+            <div class="card-title">✅ 완료 (completed)</div>
+            <div id="kpi-completed" class="kpi-value kpi-completed">0</div>
+        </div>
+        <div class="card">
+            <div class="card-title">❌ 오류 (error)</div>
+            <div id="kpi-error" class="kpi-value kpi-error">0</div>
+        </div>
+
+        <!-- 주문 큐 -->
+        <div class="card order-queue">
+            <div class="card-title">📑 실시간 주문 큐 (/orders)</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>ORDER_ID</th>
+                        <th>SUB (3종)</th>
+                        <th>MAIN</th>
+                        <th>STATUS</th>
+                        <th>TIME</th>
+                        <th>ACTION</th>
+                    </tr>
+                </thead>
+                <tbody id="order-tbody">
+                    <tr>
+                        <td colspan="6" style="text-align:center; color:#8b949e; padding:20px;">주문 대기 중...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 로봇 상태 -->
+        <div class="card robot-status">
+            <div class="card-title">🤖 M0609 로봇 상태 (/robot_status)</div>
+            <div class="info-row"><span>STATE</span><span id="info-state">--</span></div>
+            <div class="info-row"><span>CURRENT_TASK</span><span id="info-task">--</span></div>
+            <div class="info-row"><span>GRIPPER</span><span id="info-gripper">--</span></div>
+            <div class="info-row"><span>LAST_UPDATE</span><span id="info-update">--</span></div>
+
+            <div class="joint-grid">
+                <div class="joint-cell">
+                    <div class="label">J1</div>
+                    <div id="j1" class="value">0.0</div>
+                </div>
+                <div class="joint-cell">
+                    <div class="label">J2</div>
+                    <div id="j2" class="value">0.0</div>
+                </div>
+                <div class="joint-cell">
+                    <div class="label">J3</div>
+                    <div id="j3" class="value">0.0</div>
+                </div>
+                <div class="joint-cell">
+                    <div class="label">J4</div>
+                    <div id="j4" class="value">0.0</div>
+                </div>
+                <div class="joint-cell">
+                    <div class="label">J5</div>
+                    <div id="j5" class="value">0.0</div>
+                </div>
+                <div class="joint-cell">
+                    <div class="label">J6</div>
+                    <div id="j6" class="value">0.0</div>
+                </div>
+            </div>
+
+            <div class="ctrl-btns">
+                <button class="ctrl-btn ctrl-btn-blue" onclick="sendCommand('move_home')">🏠 홈 이동</button>
+                <button class="ctrl-btn ctrl-btn-orange" onclick="sendCommand('gripper_open')">🤏 그리퍼 OPEN</button>
+                <button class="ctrl-btn ctrl-btn-orange" onclick="sendCommand('gripper_close')">✊ 그리퍼 CLOSE</button>
+                <button class="ctrl-btn" onclick="sendCommand('')">↩ 명령 초기화</button>
+            </div>
+        </div>
+
+        <!-- 작업 진행률 -->
+        <div class="card" style="grid-column: span 2; overflow: hidden; display:flex; flex-direction:column; padding: 8px 12px;">
+            <div class="card-title">📊 작업 진행률</div>
+            <div style="display: grid; grid-template-columns: 160px 1fr; gap: 14px; flex:1; min-height:0; align-items:stretch;">
+
+                <!-- 큰 원형 게이지 -->
+                <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px;">
+                    <div style="position:relative; width:140px; height:140px;">
+                        <!-- 배경 트랙 -->
+                        <svg viewBox="0 0 120 120" style="width:140px; height:140px; position:absolute; top:0; left:0;">
+                            <defs>
+                                <linearGradient id="arcGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <stop offset="0%" style="stop-color:#1f6feb"/>
+                                    <stop offset="100%" style="stop-color:#3fb950"/>
+                                </linearGradient>
+                            </defs>
+                            <!-- 배경 원 -->
+                            <circle cx="60" cy="60" r="50" fill="none" stroke="#1e1e30" stroke-width="10"/>
+                            <!-- 진행 원호 -->
+                            <circle id="progress-circle" cx="60" cy="60" r="50"
+                                fill="none" stroke="url(#arcGrad)" stroke-width="10"
+                                stroke-linecap="round"
+                                stroke-dasharray="0 314.16"
+                                transform="rotate(-90 60 60)"
+                                style="transition: stroke-dasharray 0.6s ease;"/>
+                            <!-- 틱 마크 (5단계) -->
+                            <g stroke="#30363d" stroke-width="2">
+                                <line x1="60" y1="5"  x2="60" y2="14"  transform="rotate(0   60 60)"/>
+                                <line x1="60" y1="5"  x2="60" y2="14"  transform="rotate(72  60 60)"/>
+                                <line x1="60" y1="5"  x2="60" y2="14"  transform="rotate(144 60 60)"/>
+                                <line x1="60" y1="5"  x2="60" y2="14"  transform="rotate(216 60 60)"/>
+                                <line x1="60" y1="5"  x2="60" y2="14"  transform="rotate(288 60 60)"/>
+                            </g>
+                        </svg>
+                        <!-- 중앙 텍스트 -->
+                        <div style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center; pointer-events:none;">
+                            <div id="progress-pct" style="font-size:1.8em; font-weight:bold; color:#58a6ff; line-height:1;">0%</div>
+                            <div id="progress-step" style="font-size:0.62em; color:#8b949e; margin-top:3px; white-space:nowrap;">대기 중</div>
+                        </div>
+                    </div>
+                    <!-- 현재 작업 라벨 -->
+                    <div style="font-size:0.72em; color:#f0883e; text-align:center; max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                        <span id="current-step-label">--</span>
+                    </div>
+                </div>
+
+                <!-- 로그 + 진행바 -->
+                <div style="min-width:0; display:flex; flex-direction:column; min-height:0; justify-content:space-between;">
+                    <!-- 상단: 진행 막대 -->
+                    <div style="flex-shrink:0; margin-bottom:6px;">
+                        <div style="display:flex; justify-content:space-between; font-size:0.7em; color:#8b949e; margin-bottom:3px;">
+                            <span>진행률</span><span id="progress-bar-label">0 / 0</span>
+                        </div>
+                        <div style="background:#21262d; border-radius:6px; height:8px; overflow:hidden;">
+                            <div id="progress-bar" style="height:100%; width:0%; background:linear-gradient(90deg,#1f6feb,#58a6ff);
+                                border-radius:6px; transition:width 0.5s ease;"></div>
+                        </div>
+                    </div>
+                    <!-- 하단: 스텝 로그 리스트 -->
+                    <div id="step-log-list" style="overflow-y:auto; font-size:0.73em; line-height:1.7; flex:1; min-height:0;">
+                        <span style="color:#6e7681;">작업 로그가 여기 표시됩니다.</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CCTV -->
+        <div class="card cctv">
+            <div class="cctv-header">
+                <div class="card-title" style="margin: 0; border: 0; padding: 0;">📷 LIVE CCTV</div>
+                <span class="cctv-rec">REC</span>
+            </div>
+            <div class="cctv-frame">
+                <img id="cctv-img" src="" alt=""
+                    onerror="this.style.display='none'; document.getElementById('cctv-noframe').style.display='flex';"
+                    onload="this.style.display='block'; document.getElementById('cctv-noframe').style.display='none';">
+                <div id="cctv-noframe" class="cctv-noframe">
+                    스트림 URL 미설정 또는 연결 실패
+                </div>
+                <div class="cctv-overlay">📍 CAM-01 · 작업영역</div>
+                <div class="cctv-overlay tr" id="cctv-time">--:--:--</div>
+            </div>
+            <div class="cctv-config">
+                <input type="text" id="cctv-url" placeholder="http://내PC_IP:5000/video_feed"
+                    value="http://localhost:5000/video_feed">
+                <button class="ctrl-btn ctrl-btn-blue" onclick="connectCctv()">연결</button>
+                <button class="ctrl-btn" onclick="disconnectCctv()">중지</button>
+            </div>
+        </div>
+
+        <!-- 3D URDF Viewer -->
+        <div class="card cctv">
+            <div class="cctv-header">
+                <div class="card-title" style="margin: 0; border: 0; padding: 0;">🤖 3D URDF VIEWER</div>
+                <span id="v-status" style="color: #8b949e; font-size: 0.8em;">loading...</span>
+            </div>
+            <div class="cctv-frame" id="viewer3d" style="background: #0a0a1a;">
+                <!-- ThreeJS Canvas will be injected here -->
+            </div>
+            <div class="cctv-config">
+                <input type="text" id="urdf-url" placeholder="http://localhost:8080/urdf/m0609_rg2.urdf"
+                    value="http://localhost:8080/urdf/m0609_rg2.urdf">
+                <button class="ctrl-btn ctrl-btn-blue" id="btn-load-urdf" style="flex: 1;">🔄 로드</button>
+            </div>
+        </div>
+
+        <!-- 메뉴 설정 -->
+        <div class="card menu-config">
+            <div class="card-title">🥗 메뉴 구성 (/menu_config)</div>
+            <div class="menu-grid">
+                <div>
+                    <div style="color:#8b949e; font-size:0.85em; margin-bottom:8px;">SUB DISHES (4종 - 사용자가 3개 선택)</div>
+                    <div id="menu-sub" class="menu-list">--</div>
+                </div>
+                <div>
+                    <div style="color:#8b949e; font-size:0.85em; margin-bottom:8px;">MAIN DISHES (2종 - 사용자가 1개 선택)</div>
+                    <div id="menu-main" class="menu-list">--</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Raw DB 뷰어 (부분 실행 툴바 추가) -->
+        <div class="card raw-viewer">
+            <div class="card-title">💾 Firebase Raw DB (실시간)</div>
+            <div class="raw-toolbar">
+                <select id="test-stage" class="ctrl-btn" style="padding: 5px; cursor: pointer;"
+                    onchange="updateModeState()">
+                    <option value="0">전체 단계</option>
+                    <option value="1">1단계 (식판)</option>
+                    <option value="2">2단계 (서브)</option>
+                    <option value="3">3단계 (메인)</option>
+                    <option value="4">4단계 (밥)</option>
+                    <option value="5">5단계 (배달)</option>
+                </select>
+                <select id="test-mode" class="ctrl-btn" style="padding: 5px; cursor: pointer;" disabled>
+                    <option value="only">만 실행 (Only)</option>
+                    <option value="from">부터 실행 (From)</option>
+                </select>
+                <button class="ctrl-btn ctrl-btn-blue" onclick="injectTestOrderWithStage()">▶ 부분 플레이</button>
+
+                <div style="width: 1px; background: #30363d; margin: 0 10px;"></div>
+
+                <button class="ctrl-btn" onclick="injectTestOrder()">🧪 일반 주문</button>
+                <button class="ctrl-btn ctrl-btn-orange" onclick="clearOrders()">🗑 주문 전체 삭제</button>
+            </div>
+            <pre id="raw-db">{}</pre>
+        </div>
+
+    </div>
+
+    <!-- ===== Firebase ===== -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyC_NZOE-Ck22CmM79fUFso0Ni12tOXGJMk",
+            authDomain: "rokey-d3991.firebaseapp.com",
+            databaseURL: "https://rokey-d3991-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "rokey-d3991",
+            storageBucket: "rokey-d3991.firebasestorage.app",
+            messagingSenderId: "748373395576",
+            appId: "1:748373395576:web:6b16799234ce6f115bc58d"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        // ===== 시계 =====
+        setInterval(() => {
+            const d = new Date();
+            const hms = d.toTimeString().slice(0, 8);
+            document.getElementById('clock').textContent = hms;
+        }, 1000);
+
+        // ===== Firebase 연결 상태 =====
+        const connRef = db.ref('.info/connected');
+        connRef.on('value', (snap) => {
+            const fb = document.getElementById('badge-fb');
+            if (snap.val() === true) {
+                fb.textContent = '🟢 Firebase';
+                fb.className = 'badge badge-fb-on';
+            } else {
+                fb.textContent = '🔴 Firebase';
+                fb.className = 'badge badge-fb-off';
+            }
+        });
+
+        // ===== /orders 리스닝 =====
+        db.ref('orders').on('value', (snap) => {
+            const data = snap.val() || {};
+            renderOrders(data);
+        });
+
+        function renderOrders(data) {
+            let pending = 0, processing = 0, completed = 0, error = 0;
+            const rows = [];
+
+            for (const key in data) {
+                const o = data[key];
+                if (!o) continue;
+                if (o.status === 'pending') pending++;
+                else if (o.status === 'processing') processing++;
+                else if (o.status === 'completed') completed++;
+                else if (o.status === 'error') error++;
+                rows.push({ key, ...o });
+            }
+
+            document.getElementById('kpi-pending').textContent = pending;
+            document.getElementById('kpi-processing').textContent = processing;
+            document.getElementById('kpi-completed').textContent = completed;
+            document.getElementById('kpi-error').textContent = error;
+
+            rows.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+            const tbody = document.getElementById('order-tbody');
+            if (rows.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#8b949e; padding:20px;">주문 없음</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = rows.slice(0, 30).map(r => {
+                const t = new Date((r.timestamp || 0) * 1000).toTimeString().slice(0, 8);
+                const subs = (r.sub_dishes || []).join(', ');
+                const pillCls = `pill-${r.status || 'pending'}`;
+                return `
+                <tr>
+                    <td style="color:#8b949e;">${(r.order_id || r.key).slice(-8)}</td>
+                    <td>${subs}</td>
+                    <td style="color:#f0883e;">${r.main_dish || '-'}</td>
+                    <td><span class="status-pill ${pillCls}">${r.status || 'pending'}</span></td>
+                    <td style="color:#8b949e;">${t}</td>
+                    <td>
+                        <button class="row-btn" onclick="forceComplete('${r.key}')">✅완료</button>
+                        <button class="row-btn row-btn-danger" onclick="deleteOrder('${r.key}')">🗑</button>
+                    </td>
+                </tr>`;
+            }).join('');
+        }
+
+        // ===== /robot_status 리스닝 =====
+        db.ref('robot_status').on('value', (snap) => {
+            const s = snap.val() || {};
+            const stateEl = document.getElementById('info-state');
+            const stateBadge = document.getElementById('badge-robot');
+            const state = s.state || 'idle';
+
+            stateEl.textContent = state.toUpperCase();
+            if (state === 'idle') {
+                stateBadge.textContent = '🤖 IDLE';
+                stateBadge.className = 'badge badge-robot-idle';
+            } else if (state === 'moving') {
+                stateBadge.textContent = '🤖 MOVING';
+                stateBadge.className = 'badge badge-robot-moving';
+            } else if (state === 'error') {
+                stateBadge.textContent = '🤖 ERROR';
+                stateBadge.className = 'badge badge-robot-error';
+            }
+
+            document.getElementById('info-task').textContent = s.current_task || '-';
+            document.getElementById('info-gripper').textContent = (s.gripper || '-').toUpperCase();
+
+            const lu = s.last_update;
+            if (lu) {
+                const sec = Math.floor((Date.now() / 1000) - lu);
+                document.getElementById('info-update').textContent = sec + '초 전';
+            }
+
+            const pct = s.progress || 0;
+            const cstep = s.current_step || (state === 'idle' ? '대기 중' : '--');
+            const logs = s.step_log || [];
+
+            // 원형 게이지: r=50, 둘레=314.16
+            const circle = document.getElementById('progress-circle');
+            if (circle) {
+                const circ = 314.16;
+                const filled = (pct / 100) * circ;
+                circle.setAttribute('stroke-dasharray', `${filled.toFixed(2)} ${circ}`);
+                circle.setAttribute('stroke', pct >= 100 ? '#3fb950' : 'url(#arcGrad)');
+            }
+            const pctEl = document.getElementById('progress-pct');
+            if (pctEl) pctEl.textContent = pct + '%';
+
+            const stepEl = document.getElementById('progress-step');
+            if (stepEl) stepEl.textContent = `${s.step_index || 0} / ${s.total_steps || 0}`;
+
+            const csEl = document.getElementById('current-step-label');
+            if (csEl) csEl.textContent = cstep;
+
+            const bar = document.getElementById('progress-bar');
+            if (bar) {
+                bar.style.width = pct + '%';
+                bar.style.background = pct >= 100
+                    ? 'linear-gradient(90deg,#2ea043,#3fb950)'
+                    : 'linear-gradient(90deg,#1f6feb,#58a6ff)';
+            }
+            const barLabel = document.getElementById('progress-bar-label');
+            if (barLabel) barLabel.textContent = `${s.step_index || 0} / ${s.total_steps || 0}`;
+
+            const logEl = document.getElementById('step-log-list');
+            if (logEl && logs.length > 0) {
+                logEl.innerHTML = [...logs].reverse().map(l => {
+                    const color = l.startsWith('✅') ? '#3fb950'
+                        : l.startsWith('❌') ? '#f85149'
+                            : l.startsWith('⏭️') ? '#8b949e'
+                                : '#f0883e';
+                    return `<div style="color:${color}; padding:2px 0; border-bottom:1px solid #21262d;">${l}</div>`;
+                }).join('');
+            } else if (logEl && logs.length === 0) {
+                logEl.innerHTML = '<span style="color:#6e7681;">작업 로그가 여기 표시됩니다.</span>';
+            }
+        });
+
+        // ===== /menu_config 리스닝 =====
+        db.ref('menu_config').on('value', (snap) => {
+            const m = snap.val() || {};
+            document.getElementById('menu-sub').innerHTML =
+                (m.sub_dishes || []).map(x => `<span class="menu-tag tag-sub">${x}</span>`).join('') || '-';
+            document.getElementById('menu-main').innerHTML =
+                (m.main_dishes || []).map(x => `<span class="menu-tag tag-main">${x}</span>`).join('') || '-';
+        });
+
+        // ===== Raw DB 전체 ===== 
+        db.ref('/').on('value', (snap) => {
+            const data = snap.val() || {};
+            document.getElementById('raw-db').textContent = JSON.stringify(data, null, 2);
+        });
+
+        // ===== 명령 발행 =====
+        function sendCommand(type) {
+            db.ref('command').set({
+                type: type,
+                timestamp: Math.floor(Date.now() / 1000)
+            });
+            console.log('[CMD] ' + type);
+        }
+
+        function sendEStop() {
+            if (confirm('🛑 비상 정지를 실행할까요?')) {
+                sendCommand('emergency_stop');
+            }
+        }
+
+        function forceComplete(key) {
+            if (confirm('이 주문을 강제 완료 처리할까요?')) {
+                db.ref('orders/' + key).update({ status: 'completed' });
+            }
+        }
+        function deleteOrder(key) {
+            if (confirm('이 주문을 삭제할까요?')) {
+                db.ref('orders/' + key).remove();
+            }
+        }
+
+        // ===== 부분 실행 UI 컨트롤 =====
+        function updateModeState() {
+            const stage = document.getElementById('test-stage').value;
+            const modeSelect = document.getElementById('test-mode');
+            if (stage === "0") {
+                modeSelect.disabled = true;
+            } else {
+                modeSelect.disabled = false;
+            }
+        }
+
+        // ===== 개발자 도구 =====
+        function injectTestOrderWithStage() {
+            const stage = parseInt(document.getElementById('test-stage').value);
+            const mode = document.getElementById('test-mode').value;
+            const subs = ['피클', '단무지', '김치', '샐러드'];
+            const mains = ['돈까스', '제육'];
+            const shuffled = subs.sort(() => 0.5 - Math.random());
+
+            const payload = {
+                timestamp: Math.floor(Date.now() / 1000),
+                sub_dishes: shuffled.slice(0, 3),
+                main_dish: mains[Math.floor(Math.random() * 2)],
+                status: 'pending'
+            };
+
+            if (stage > 0) {
+                payload.target_stage = stage;
+                payload.run_mode = mode;
+                console.log(`[Test Order] 부분 실행: ${stage}단계 ${mode === 'only' ? '만' : '부터'} 실행`);
+            } else {
+                console.log(`[Test Order] 전체 단계 실행`);
+            }
+
+            const newRef = db.ref('orders').push();
+            payload.order_id = newRef.key;
+            newRef.set(payload);
+        }
+
+        function injectTestOrder() {
+            document.getElementById('test-stage').value = "0";
+            updateModeState();
+            injectTestOrderWithStage();
+        }
+
+        function clearOrders() {
+            if (confirm('⚠️ 모든 주문을 삭제할까요?')) {
+                db.ref('orders').remove();
+            }
+        }
+
+        db.ref('menu_config').once('value', (snap) => {
+            if (!snap.val()) {
+                db.ref('menu_config').set({
+                    sub_dishes: ['피클', '단무지', '김치', '샐러드'],
+                    main_dishes: ['돈까스', '제육']
+                });
+            }
+        });
+
+        // ===== CCTV =====
+        function connectCctv() {
+            const url = document.getElementById('cctv-url').value.trim();
+            const img = document.getElementById('cctv-img');
+            if (!url) {
+                alert('스트림 URL 을 입력해주세요.');
+                return;
+            }
+            img.src = url + (url.includes('?') ? '&' : '?') + 't=' + Date.now();
+            console.log('[CCTV] 연결 시도: ' + url);
+        }
+
+        function disconnectCctv() {
+            const img = document.getElementById('cctv-img');
+            img.src = '';
+            img.style.display = 'none';
+            document.getElementById('cctv-noframe').style.display = 'flex';
+            console.log('[CCTV] 연결 중지');
+        }
+
+        setInterval(() => {
+            const t = document.getElementById('cctv-time');
+            if (t) t.textContent = new Date().toTimeString().slice(0, 8);
+        }, 1000);
+
+        window.addEventListener('load', () => {
+            setTimeout(connectCctv, 500);
+        });
+
+        // ===== 3D URDF 실시간 관절 동기화 (SSE from robot_dashboard.py) =====
+        let sseSource = null;
+        function connectJointSSE() {
+            sseSource = new EventSource('http://localhost:8080/events');
+            sseSource.onmessage = function (e) {
+                try {
+                    const data = JSON.parse(e.data);
+                    const jp = data.joint_positions || [0, 0, 0, 0, 0, 0];
+                    for (let i = 0; i < 6; i++) {
+                        const cell = document.getElementById('j' + (i + 1));
+                        if (cell) cell.textContent = (jp[i] || 0).toFixed(1) + '°';
+                    }
+                    if (window._urdfUpdateJoints) window._urdfUpdateJoints(jp);
+                } catch (err) {
+                    console.error('SSE Parse Error:', err);
+                }
+            };
+            sseSource.onerror = function () {
+                console.log('[SSE] 연결 오류 - 재연결 대기 중...');
+            };
+        }
+        connectJointSSE();
+    </script>
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { ColladaLoader } from 'three/addons/loaders/ColladaLoader.js';
+        import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+        import URDFLoader from 'https://cdn.jsdelivr.net/npm/urdf-loader@0.12.2/src/URDFLoader.js';
+
+        const box = document.getElementById('viewer3d');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0a0a1a);
+        const camera = new THREE.PerspectiveCamera(50, box.clientWidth / box.clientHeight, 0.01, 100);
+        camera.position.set(1.2, 1.0, 1.2);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(box.clientWidth, box.clientHeight);
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        box.appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.target.set(0, 0.35, 0); controls.update();
+        controls.enableDamping = true; controls.dampingFactor = 0.08;
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+        const dl = new THREE.DirectionalLight(0xffffff, 0.9);
+        dl.position.set(3, 5, 3); scene.add(dl);
+        const dl2 = new THREE.DirectionalLight(0x4499ff, 0.3);
+        dl2.position.set(-2, 3, -2); scene.add(dl2);
+
+        const grid = new THREE.GridHelper(2, 20, 0x1e1e40, 0x1e1e40);
+        scene.add(grid);
+
+        const DASHBOARD = 'http://localhost:8080';
+        const loader = new URDFLoader();
+        loader.loadMeshCb = function (path, manager, onComplete) {
+            const url = path.startsWith('http') ? path : DASHBOARD + path;
+            const ext = url.split('.').pop().toLowerCase();
+            if (ext === 'dae') {
+                new ColladaLoader(manager).load(url, r => onComplete(r.scene));
+            } else if (ext === 'stl') {
+                new STLLoader(manager).load(url, geo => {
+                    const mat = new THREE.MeshPhongMaterial({ color: 0x888888 });
+                    onComplete(new THREE.Mesh(geo, mat));
+                });
+            } else { onComplete(new THREE.Object3D()); }
+        };
+
+        let robot = null;
+        const DEG2RAD = Math.PI / 180;
+
+        window.loadURDF = function () {
+            const url = document.getElementById('urdf-url').value;
+            if (!url) return;
+            document.getElementById('v-status').textContent = 'loading...';
+
+            if (robot) {
+                scene.remove(robot);
+                robot = null;
+            }
+
+            loader.load(url, function (r) {
+                robot = r;
+                robot.rotation.x = -Math.PI / 2;
+                scene.add(robot);
+                document.getElementById('v-status').textContent = 'loaded ✔';
+                console.log('URDF loaded, joints:', Object.keys(robot.joints));
+            });
+        };
+
+        window.loadURDF();
+        document.getElementById('btn-load-urdf').addEventListener('click', window.loadURDF);
+
+        window._urdfUpdateJoints = function (pos) {
+            if (!robot || !pos || pos.length < 6) return;
+            for (let i = 0; i < 6; i++) {
+                const jn = 'joint_' + (i + 1);
+                if (robot.joints[jn]) robot.joints[jn].setJointValue(pos[i] * DEG2RAD);
+            }
+        };
+
+        function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); }
+        animate();
+
+        window.addEventListener('resize', function () {
+            camera.aspect = box.clientWidth / box.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(box.clientWidth, box.clientHeight);
+        });
+        new ResizeObserver(function () {
+            camera.aspect = box.clientWidth / box.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(box.clientWidth, box.clientHeight);
+        }).observe(box);
+    </script>
+</body>
+
+</html>
