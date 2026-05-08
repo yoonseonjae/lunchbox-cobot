@@ -742,6 +742,26 @@
 
     </div>
 
+    <div id="error-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 9999; justify-content: center; align-items: center;">
+        <div style="background: #161b22; border: 2px solid #f85149; border-radius: 12px; padding: 30px; width: 350px; text-align: center; box-shadow: 0 0 25px rgba(248,81,73,0.4);">
+            <div style="font-size: 2.5em; margin-bottom: 15px;">⚠️</div>
+            <h2 style="color: #f85149; font-size: 1.3em; margin-bottom: 10px;">예외 상황 발생</h2>
+            <p style="color: #c9d1d9; margin-bottom: 20px; font-size: 0.95em;">오류가 발생되었습니다.</p>
+            
+            <div style="margin-bottom: 25px;">
+                <label style="display: block; color: #f85149; font-size: 0.8em; margin-bottom: 8px; text-align: left;">후속 동작 선택:</label>
+                <select id="error-action-select" style="width: 100%; background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 10px; border-radius: 6px; font-family: 'Consolas', monospace; outline: none;">
+                    <option value="resume">마지막 동작부터 시작</option>
+                    <option value="restart">처음부터 다시시작</option>
+                </select>
+            </div>
+
+            <button onclick="handleErrorRecovery()" style="width: 100%; background: #3fb950; color: white; border: none; padding: 12px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 1em; transition: 0.2s;">실행</button>
+            
+            <button onclick="closeErrorModal()" style="background: transparent; color: #8b949e; border: none; margin-top: 15px; font-size: 0.8em; cursor: pointer; text-decoration: underline;">닫기</button>
+        </div>
+    </div>
+
     <!-- ===== Firebase ===== -->
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
@@ -847,6 +867,7 @@
             } else if (state === 'error') {
                 stateBadge.textContent = '🤖 ERROR';
                 stateBadge.className = 'badge badge-robot-error';
+                showErrorModal();
             }
 
             document.getElementById('info-task').textContent = s.current_task || '-';
@@ -1055,6 +1076,35 @@
             };
         }
         connectJointSSE();
+
+        // 팝업 열기/닫기 함수
+        function showErrorModal() {
+            document.getElementById('error-modal').style.display = 'flex';
+        }
+
+        function closeErrorModal() {
+            document.getElementById('error-modal').style.display = 'none';
+        }
+
+        // 리스트 박스에서 선택한 행동 수행
+        function handleErrorRecovery() {
+            const selectedAction = document.getElementById('error-action-select').value;
+            
+            if (selectedAction === 'resume') {
+                console.log('[Recovery] 마지막 동작부터 재개 시도');
+                // Firebase에 'resume_task' 명령을 보내거나 상태 업데이트
+                sendCommand('resume');//??
+            } else if (selectedAction === 'restart') {
+                console.log('[Recovery] 처음부터 다시 시작 시도');
+                // Firebase에 'restart_task' 명령을 보냄
+                sendCommand('move_home');
+            }
+            
+            // 실행 후 팝업 닫기
+            closeErrorModal();
+        }
+
+
     </script>
     <script type="module">
         import * as THREE from 'three';
