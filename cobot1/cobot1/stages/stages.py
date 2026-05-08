@@ -83,16 +83,18 @@ class SubDishStage(BaseStage):
     dish_name 에 따라 좌표를 CoordinateManager 에서 가져옴.
     """
 
-    def __init__(self, state_manager, robot_client, coord_manager, dish_name: str):
+    def __init__(self, state_manager, robot_client, coord_manager, dish_name: str, slot_index: int):
         super().__init__(state_manager, robot_client, coord_manager, f"SubDish-{dish_name}")
         self.dish_name = dish_name
+        self.slot_index = slot_index  # 식판의 몇 번째 칸에 놓을지 결정하는 인덱스
 
     def execute(self) -> StageResult:
         self.sm.update_status(current_task=f"🥗 [2/5] 서브 반찬 - [{self.dish_name}]")
         home = self.cm.home_joint()
 
         try:
-            wp = self.cm.sub_dish(self.dish_name)
+            pick_wp = self.cm.sub_dish_pick(self.dish_name)
+            place_wp = self.cm.sub_dish_place(self.slot_index)
         except KeyError as e:
             print(f"[SubDish] 좌표 없음: {e}")
             return StageResult.ERROR
@@ -103,8 +105,8 @@ class SubDishStage(BaseStage):
             self._gripper(100)
 
             # 반찬통 접근 (관절) → 픽 위치 (직선)
-            if not self._movej(wp["pre_pick_j"],        f"🥗 [{self.dish_name}] 픽 준비", r=50):      return StageResult.STOPPED
-            if not self._movel(wp["pick_l"],            f"🥗 [{self.dish_name}] 픽 위치", r=50):      return StageResult.STOPPED
+            if not self._movej(pick_wp["pre_pick_j"],        f"🥗 [{self.dish_name}] 픽 준비", r=50):      return StageResult.STOPPED
+            if not self._movel(pick_wp["pick_l"],            f"🥗 [{self.dish_name}] 픽 위치", r=50):      return StageResult.STOPPED
 
             # 집기
             self._gripper(20)
@@ -112,11 +114,11 @@ class SubDishStage(BaseStage):
             self._tick(f"🥗 [{self.dish_name}] 집기", done=True)
 
             # 들어올림
-            if not self._amovel(wp["up_pick_l"],         f"🥗 [{self.dish_name}] 들어올림", r=50):     return StageResult.STOPPED
+            if not self._amovel(pick_wp["up_pick_l"],         f"🥗 [{self.dish_name}] 들어올림", r=50):     return StageResult.STOPPED
 
             # 식판 슬롯 이동 (관절) → 놓기 (직선)
-            if not self._amovej(wp["pre_place_j"],       f"🥗 [{self.dish_name}] 슬롯 접근", r=50):    return StageResult.STOPPED
-            if not self._movel(wp["place_l"],           f"🥗 [{self.dish_name}] 놓기"):         return StageResult.STOPPED
+            if not self._amovej(place_wp["pre_place_j"],       f"🥗 [{self.dish_name}] 슬롯 접근", r=50):    return StageResult.STOPPED
+            if not self._movel(place_wp["place_l"],           f"🥗 [{self.dish_name}] 놓기"):         return StageResult.STOPPED
 
             # 놓기
             self._gripper(100)

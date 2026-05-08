@@ -233,7 +233,8 @@ class RobotController:
                     self.sm.update_status(
                         current_task=f"🥗 [2/5] 서브 {idx+1}/{n_sub} - [{dish}]"
                     )
-                    result = SubDishStage(self.sm, self.rc, self.cm, dish).execute()
+
+                    result = SubDishStage(self.sm, self.rc, self.cm, dish, slot_index=idx).execute()
                     if result != StageResult.SUCCESS:
                         raise RuntimeError(f"Stage2 실패: {dish} {result}")
             else:
