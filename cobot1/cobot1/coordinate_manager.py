@@ -12,6 +12,9 @@ import os
 from typing import Dict, List, Any
 
 import yaml
+from rclpy.logging import get_logger
+
+_logger = get_logger('coordinate_manager')
 
 
 class CoordinateManager:
@@ -36,7 +39,7 @@ class CoordinateManager:
             raise FileNotFoundError(f"[CoordinateManager] 설정 파일 없음: {path}")
         with open(path, "r", encoding="utf-8") as f:
             self._cfg = yaml.safe_load(f)
-        print(f"[CoordinateManager] 설정 로드 완료: {path}")
+        _logger.info(f"설정 로드 완료: {path}")
 
     # ── 로봇 기본 설정 ────────────────────────────────────────────
     @property

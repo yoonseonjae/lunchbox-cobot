@@ -19,6 +19,9 @@ import os
 import rclpy
 
 import DR_init
+from rclpy.logging import get_logger as _get_logger
+
+_logger = _get_logger('lunchbox_robot_node')
 
 # ── 기본 설정 ─────────────────────────────────────────────────────────────
 ROBOT_ID    = "dsr01"
@@ -39,28 +42,38 @@ DATABASE_URL = (
 # ============================================================================
 # main
 # ============================================================================
-def main(args=None):
+def main(args=None) -> None:
     # ── 1. ROS2 초기화 ────────────────────────────────────────────────────
     rclpy.init(args=args)
     node = rclpy.create_node("lunchbox_robot_node", namespace=ROBOT_ID)
     DR_init.__dsr__node = node
-    print(f"[Main] 노드 '{ROBOT_ID}/lunchbox_robot_node' 생성")
+    node.get_logger().info(f"노드 '{ROBOT_ID}/lunchbox_robot_node' 생성")
 
     # ── 2. DSR_ROBOT2 import (노드 생성 이후에만 가능) ─────────────────────
     try:
         from DSR_ROBOT2 import (
-            movej, movel, mwait,
+            movej, movel, mwait, amovej, amovel,
             set_tool, set_tcp,
             set_digital_output, get_digital_input,
             wait,
             drl_script_stop,
-            DR_BASE,
+            check_motion,
+            get_robot_state,
+            set_robot_mode,
+            DR_BASE
         )
+        from DSR_ROBOT2 import ROBOT_MODE_AUTONOMOUS
         from DR_common2 import posj, posx
     except ImportError as e:
-        print(f"[Main] DSR_ROBOT2 import 실패: {e}")
+        node.get_logger().error(f"DSR_ROBOT2 import 실패: {e}")
         rclpy.shutdown()
         return
+
+    # 로봇 모드 자율 설정 (공식 가이드 기준)
+    try:
+        set_robot_mode(ROBOT_MODE_AUTONOMOUS)
+    except Exception as e:
+        node.get_logger().error(f"set_robot_mode 실패: {e}")
 
     # ── 3. 컴포넌트 생성 ──────────────────────────────────────────────────
     from .coordinate_manager import CoordinateManager
@@ -75,9 +88,11 @@ def main(args=None):
         acc = coord_mgr.acceleration,
     )
     robot_client.inject(
-        movej, movel, mwait,
+        movej, movel, mwait, amovej, amovel,
         set_digital_output, get_digital_input,
         wait, drl_script_stop,
+        check_motion, drl_script_stop,
+        get_robot_state,
         posj, posx, DR_BASE,
     )
 
@@ -88,13 +103,13 @@ def main(args=None):
         from .repositories import FirebaseOrderRepository
         order_repo = FirebaseOrderRepository(SERVICE_ACCOUNT_KEY, DATABASE_URL)
         if not order_repo.available:
-            print("[Main] ⚠️ Firebase 연결 실패 → Mock 으로 전환")
+            node.get_logger().warn("⚠️ Firebase 연결 실패 → Mock 으로 전환")
             use_firebase = False
 
     if not use_firebase:
         from .repositories import MockOrderRepository
         order_repo = MockOrderRepository()
-        print("[Main] ℹ️  MockOrderRepository 사용 (Firebase 없음)")
+        node.get_logger().info("ℹ️  MockOrderRepository 사용 (Firebase 없음)")
 
     # ── 5. RobotController 시작 ───────────────────────────────────────────
     controller = RobotController(
@@ -106,20 +121,20 @@ def main(args=None):
     )
 
     if not controller.start():
-        print("[Main] 컨트롤러 시작 실패 → 종료")
+        node.get_logger().error("컨트롤러 시작 실패 → 종료")
         return
 
     # ── 6. 종료 대기 ──────────────────────────────────────────────────────
     try:
         controller.join()
     except KeyboardInterrupt:
-        print("\n[Main] Ctrl+C 감지")
+        node.get_logger().info("Ctrl+C 감지 - 종료")
     finally:
         controller.stop()
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
-        print("[Main] 종료 완료")
+        _logger.info("종료 완료")
 
 
 if __name__ == "__main__":
