@@ -84,33 +84,6 @@ class RobotClient:
                get_robot_state,
                posj, posx, DR_BASE):
         """main() 내부에서 DSR import 후 호출."""
-<<<<<<< HEAD
-        self._movej              = movej
-        self._movel              = movel
-        self._mwait              = mwait
-        self._amovej             = amovej
-        self._amovel             = amovel
-        self._set_digital_output = set_digital_output
-        self._get_digital_input  = get_digital_input
-        self._wait               = wait
-        self._drl_script_stop    = drl_script_stop
-        self._posj               = posj
-        self._posx               = posx
-        self._DR_BASE            = DR_BASE
-
-    # ── 이동 ──────────────────────────────────────────────────────
-    def movej(self, coords: List[float], radius = None):
-        """관절 이동 (동기)."""
-        self._movej(self._posj(coords), vel=self.vel, acc=self.acc, radius=radius)
-        # self._mwait()
-
-    def amovej(self, coords: List[float], radius = None):
-        """관절 이동 (비동기 발행 후 mwait). plate_finish_a [010] 구간에 사용."""
-        self._amovej(self._posj(coords), vel=self.vel, acc=self.acc, radius=radius)
-        # self._mwait()
-
-    def movel(self, coords: List[float], radius = None):
-=======
         self._drs_movej              = movej
         self._drs_movel              = movel
         self._drs_amovej             = amovej
@@ -134,21 +107,10 @@ class RobotClient:
         self._drs_mwait()
 
     def do_movel(self, coords: List[float]) -> None:
->>>>>>> origin/main
         """직선(Cartesian) 이동 (동기)."""
         self._drs_movel(
             self._drs_posx(coords),
             vel=self.vel, acc=self.acc,
-<<<<<<< HEAD
-            radius=radius,
-            ref=self._DR_BASE,
-        )
-        # self._mwait()
-    def amovel(self, coords: List[float], radius = None):
-        """직선(Cartesian) 이동 (비동기)"""
-        self._amovel(self._posx(coords), vel=self.vel, acc=self.acc, radius=radius)
-        # self._mwait()
-=======
             ref=self._drs_DR_BASE,
         )
         self._drs_mwait()
@@ -164,7 +126,6 @@ class RobotClient:
             vel=self.vel, acc=self.acc,
             ref=self._drs_DR_BASE,
         )
->>>>>>> origin/main
 
     # ── 그리퍼 ───────────────────────────────────────────────────
     def set_gripper(self, width_mm: int) -> None:
