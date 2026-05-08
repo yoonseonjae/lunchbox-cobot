@@ -73,6 +73,11 @@ class RobotController:
         self._t_status:  Optional[threading.Thread] = None
         self._t_monitor: Optional[threading.Thread] = None
 
+        # 긴급정지 시 중단 지점 저장 (resume 재실행용)
+        self._retry_order:     Optional[Order] = None
+        self._retry_stage:     int = 0
+        self._retry_dish_idx:  int = 0
+
     # ── 시작 / 종료 ───────────────────────────────────────────────
     def start(self):
         """모든 스레드 시작. 초기 홈 이동 성공 후에만 Firebase 리스너 등록."""
@@ -182,7 +187,12 @@ class RobotController:
         elif cmd_type == "resume":
             if self.sm.is_stopped():
                 self.sm.clear_emergency_stop()
-                print("[Controller] ✅ 비상정지 해제 - 작업 재개 가능")
+                if self._retry_order is not None:
+                    self._order_queue.put(('retry', self._retry_order, self._retry_stage, self._retry_dish_idx))
+                    print(f"[Controller] 🔄 재개: Stage {self._retry_stage}부터 재실행 큐 추가")
+                    self._retry_order = None
+                else:
+                    print("[Controller] ✅ 비상정지 해제 - 작업 재개 가능")
 
         elif cmd_type == "move_home":
             self.sm.update_status(
@@ -201,7 +211,7 @@ class RobotController:
             self.rc.set_gripper(100)
 
     # ── 주문 처리 ─────────────────────────────────────────────────
-    def _process_order(self, order: Order):
+    def _process_order(self, order: Order, retry_from_stage: int = 0, retry_from_dish_idx: int = 0):
         key = order.key
         print(f"\n[Controller] ===== 주문 시작: {key} =====")
         print(f"  sub={order.sub_dishes}  main={order.main_dish}")
@@ -220,8 +230,10 @@ class RobotController:
         )
         self.repo.mark_processing(key)
 
-        # 실행 여부 판별
+        # 실행 여부 판별 (retry 시엔 중단 스테이지부터, 아니면 원래 order 기준)
         def should_run(stage_num: int) -> bool:
+            if retry_from_stage > 0:
+                return stage_num >= retry_from_stage
             if order.target_stage == 0:
                 return True
             if order.run_mode == "only":
@@ -233,18 +245,21 @@ class RobotController:
             if should_run(1):
                 result = TraySetupStage(self.sm, self.rc, self.cm).execute()
                 if result != StageResult.SUCCESS:
+                    self._retry_order, self._retry_stage, self._retry_dish_idx = order, 1, 0
                     raise RuntimeError(f"Stage1 실패: {result}")
             else:
                 self.sm.add_step_log("⏭️ [1/5] 식판 세팅 건너뜀", completed=True)
 
             # ── Stage 2 : 서브 반찬 ──────────────────────────────
             if should_run(2):
-                for idx, dish in enumerate(valid_subs):
+                start_idx = retry_from_dish_idx if retry_from_stage == 2 else 0
+                for idx, dish in enumerate(valid_subs[start_idx:], start=start_idx):
                     self.sm.update_status(
                         current_task=f"🥗 [2/5] 서브 {idx+1}/{n_sub} - [{dish}]"
                     )
                     result = SubDishStage(self.sm, self.rc, self.cm, dish).execute()
                     if result != StageResult.SUCCESS:
+                        self._retry_order, self._retry_stage, self._retry_dish_idx = order, 2, idx
                         raise RuntimeError(f"Stage2 실패: {dish} {result}")
             else:
                 self.sm.add_step_log("⏭️ [2/5] 서브 반찬 건너뜀", completed=True)
@@ -255,6 +270,7 @@ class RobotController:
                     self.sm, self.rc, self.cm, order.main_dish
                 ).execute()
                 if result != StageResult.SUCCESS:
+                    self._retry_order, self._retry_stage, self._retry_dish_idx = order, 3, 0
                     raise RuntimeError(f"Stage3 실패: {result}")
             else:
                 self.sm.add_step_log("⏭️ [3/5] 메인 반찬 건너뜀", completed=True)
@@ -263,6 +279,7 @@ class RobotController:
             if should_run(4):
                 result = RiceStage(self.sm, self.rc, self.cm).execute()
                 if result != StageResult.SUCCESS:
+                    self._retry_order, self._retry_stage, self._retry_dish_idx = order, 4, 0
                     raise RuntimeError(f"Stage4 실패: {result}")
             else:
                 self.sm.add_step_log("⏭️ [4/5] 밥 담기 건너뜀", completed=True)
@@ -271,6 +288,7 @@ class RobotController:
             if should_run(5):
                 result = DeliveryStage(self.sm, self.rc, self.cm).execute()
                 if result != StageResult.SUCCESS:
+                    self._retry_order, self._retry_stage, self._retry_dish_idx = order, 5, 0
                     raise RuntimeError(f"Stage5 실패: {result}")
             else:
                 self.sm.add_step_log("⏭️ [5/5] 식판 배달 건너뜀", completed=True)
@@ -302,8 +320,15 @@ class RobotController:
 
         while rclpy.ok() and self._running.is_set():
             try:
-                order = self._order_queue.get(timeout=0.5)
-                self._process_order(order)
+                item = self._order_queue.get(timeout=0.5)
+                if isinstance(item, tuple) and item[0] == 'retry':
+                    _, order, stage, dish_idx = item
+                    print(f"[Task] 🔄 홈 복귀 후 Stage {stage}부터 재실행")
+                    self.sm.update_status(current_task="🏠 홈 복귀 중")
+                    self.rc.movej(self.cm.home_joint())
+                    self._process_order(order, retry_from_stage=stage, retry_from_dish_idx=dish_idx)
+                else:
+                    self._process_order(item)
             except queue.Empty:
                 continue
             except Exception as e:
