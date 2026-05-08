@@ -217,11 +217,21 @@ class RobotController:
 
             if should_run(2):
                 for idx, dish in enumerate(valid_subs):
+<<<<<<< HEAD
                     check_stop()
                     self.sm.update_status(current_task=f"🥗 [2/5] 서브 {idx+1}/{n_sub} - [{dish}]")
                     result = SubDishStage(self.sm, self.rc, self.cm, dish).execute()
                     if result == StageResult.STOPPED: check_stop()
                     if result != StageResult.SUCCESS: raise RuntimeError(f"Stage2 실패: {dish} {result}")
+=======
+                    self.sm.update_status(
+                        current_task=f"🥗 [2/5] 서브 {idx+1}/{n_sub} - [{dish}]"
+                    )
+
+                    result = SubDishStage(self.sm, self.rc, self.cm, dish, slot_index=idx).execute()
+                    if result != StageResult.SUCCESS:
+                        raise RuntimeError(f"Stage2 실패: {dish} {result}")
+>>>>>>> origin/hb_develop
             else:
                 self.sm.add_step_log("⏭️ [2/5] 서브 반찬 건너뜀", completed=True)
 

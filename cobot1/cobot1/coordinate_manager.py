@@ -74,16 +74,22 @@ class CoordinateManager:
             raise KeyError(f"[CoordinateManager] 스테이지 {num} 없음")
         return coords[key]
 
-    def sub_dish(self, dish_name: str) -> Dict[str, List[float]]:
-        """서브 반찬 웨이포인트 dict 반환."""
-        dishes = self._cfg["coordinates"]["stage_2"]
+    def sub_dish_pick(self, dish_name: str) -> Dict[str, List[float]]:
+        """선택된 반찬의 집기(Pick) 관련 좌표만 반환 (pre_pick, pick, up_pick)"""
+        dishes = self._cfg["coordinates"]["stage_2_picks"]
         if dish_name not in dishes:
-            raise KeyError(
-                f"[CoordinateManager] 서브 반찬 '{dish_name}' 없음. "
-                f"등록된 반찬: {list(dishes.keys())}"
-            )
+            raise KeyError(f"반찬 '{dish_name}' 없음.")
         return dishes[dish_name]
 
+    def sub_dish_place(self, slot_index: int) -> Dict[str, List[float]]:
+        """식판의 칸 순서(Index)에 따른 놓기(Place) 좌표 반환 (pre_place, place)"""
+        # config에 slot_0, slot_1, slot_2 등으로 저장
+        slots = self._cfg["coordinates"]["stage_2_places"]
+        slot_key = f"slot_{slot_index}"
+        if slot_key not in slots:
+            raise KeyError(f"식판 슬롯 '{slot_key}' 없음.")
+        return slots[slot_key]
+    
     def available_sub_dishes(self) -> List[str]:
         """설정 파일에 등록된 서브 반찬 이름 목록."""
         return list(self._cfg["coordinates"]["stage_2"].keys())

@@ -121,6 +121,28 @@ class RobotClient:
         self._drs_wait(GRIPPER_SETTLE_SEC)
         _logger.info(f"그리퍼 {width_mm}mm 설정  DO1={d1} DO2={d2} DO3={d3}")
 
+<<<<<<< HEAD
+=======
+    def check_grip(self):
+        """
+        OnRobot RG2 그리퍼가 물체를 잡았는지 확인하는 함수
+        Returns:
+            True  → 물체를 잡은 상태
+            False → 물체를 잡지 못한 상태
+        """
+        self._wait(0.5)  # 그리퍼 동작 안정화 대기
+        
+        di_1 = self._get_digital_input(1)  # WebLogic #3 OUT 1번 읽기
+        di_2 = self._get_digital_input(2)  # WebLogic #3 OUT 2번 읽기
+        di_3 = self._get_digital_input(3)  # WebLogic #3 OUT 3번 읽기
+        
+        if (di_1 == 1 and di_2 == 0 and di_3 == 1):
+            return True
+        elif (di_1 == 1 and di_2 == 1 and di_3 == 0):
+            return False
+        
+    # ── 유틸 ──────────────────────────────────────────────────────
+>>>>>>> origin/hb_develop
     def wait(self, sec: float) -> None:
         self._drs_wait(sec)
 
