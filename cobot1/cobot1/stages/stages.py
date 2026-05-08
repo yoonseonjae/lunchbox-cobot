@@ -109,7 +109,7 @@ class SubDishStage(BaseStage):
             if not self._movel(pick_wp["pick_l"],            f"🥗 [{self.dish_name}] 픽 위치", radius=50):      return StageResult.STOPPED
 
             # 집기
-            self._gripper(20)
+            self._gripper(50)
             self.rc.wait(0.5)
             if not self._check_grip():
                 return
