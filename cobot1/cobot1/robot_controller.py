@@ -104,6 +104,12 @@ class RobotController:
         )
         print("[Controller] /robot_order 토픽 구독 등록")
 
+        # 터미널에서 긴급정지 등 명령을 직접 보낼 수 있는 토픽
+        self.node.create_subscription(
+            String, '/robot_command', self._on_ros_command_msg, 10
+        )
+        print("[Controller] /robot_command 토픽 구독 등록")
+
         # 4) Firebase 명령 리스너 등록 (명령은 Firebase 직접 유지)
         self.repo.listen_commands(self._on_command_received)
 
@@ -162,6 +168,10 @@ class RobotController:
     def _on_command_received(self, cmd_type: str):
         print(f"[Controller] 명령 수신: {cmd_type}")
         self._handle_command(cmd_type)
+
+    def _on_ros_command_msg(self, msg: String):
+        print(f"[Controller] ROS 명령 수신: {msg.data}")
+        self._handle_command(msg.data)
 
     # ── 명령 처리 ─────────────────────────────────────────────────
     def _handle_command(self, cmd_type: str):
