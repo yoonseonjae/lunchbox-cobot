@@ -19,17 +19,12 @@ from rclpy.logging import get_logger
 
 _logger = get_logger('state_manager')
 
-
-# ============================================================================
-# Enum 정의
-# ============================================================================
 class RobotState(Enum):
     IDLE           = "idle"
     MOVING         = "moving"
     PROCESSING     = "processing"
     ERROR          = "error"
     EMERGENCY_STOP = "emergency_stop"
-
 
 class GripperWidth(Enum):
     MM5   = "5mm"
@@ -38,16 +33,11 @@ class GripperWidth(Enum):
     MM50  = "50mm"
     MM100 = "100mm"
 
-
-# ============================================================================
-# 데이터 클래스
-# ============================================================================
 @dataclass
 class StepLog:
     timestamp: float
     message:   str
     completed: bool
-
 
 @dataclass
 class RobotStatus:
@@ -63,20 +53,7 @@ class RobotStatus:
     last_update:  float       = field(default_factory=time.time)
     collision_detected: bool  = False
 
-
-# ============================================================================
-# RobotStateManager
-# ============================================================================
 class RobotStateManager:
-    """
-    모든 로봇 상태를 단일 지점에서 관리.
-    - update_status()     : 스레드 안전한 상태 업데이트
-    - get_status_dict()   : Firebase 업로드 / 웹 직렬화용 dict 반환
-    - add_step_log()      : 단계 로그 추가 (최대 20개 유지)
-    - trigger_emergency_stop() / clear_emergency_stop()
-    - mark_order_processed() / is_order_processed()
-    """
-
     MAX_LOG = 20
 
     def __init__(self):
@@ -84,10 +61,12 @@ class RobotStateManager:
         self._lock                 = threading.RLock()
         self.emergency_stop        = threading.Event()
         self.processed_order_keys: set = set()
+        
+        # 🚨 [추가됨] 스테이지들이 일시정지 상태를 알 수 있도록 이벤트 추가
+        self.pause_event           = threading.Event()
+        self.pause_event.set()     # Set 상태가 정상 작동(Not Paused)을 의미
 
-    # ── 상태 업데이트 ─────────────────────────────────────────────
     def update_status(self, **kwargs):
-        """스레드 안전한 부분 업데이트. RobotStatus 필드명으로 전달."""
         with self._lock:
             for key, value in kwargs.items():
                 if hasattr(self.status, key):
@@ -95,7 +74,6 @@ class RobotStateManager:
             self.status.last_update = time.time()
 
     def add_step_log(self, message: str, completed: bool = False):
-        """진행 로그 추가. done=True 이면 ✅, 아니면 🔄 prefix."""
         with self._lock:
             prefix = "✅" if completed else "🔄"
             entry  = StepLog(
@@ -110,7 +88,6 @@ class RobotStateManager:
         _logger.info(entry.message)
 
     def reset_progress(self, total: int):
-        """새 주문 시작 시 진행 상태 초기화."""
         with self._lock:
             self.status.progress     = 0
             self.status.step_index   = 0
@@ -119,7 +96,6 @@ class RobotStateManager:
             self.status.step_log     = []
 
     def tick(self, label: str = ""):
-        """스텝 하나 완료 - 진행률 증가."""
         with self._lock:
             self.status.step_index = min(
                 self.status.step_index + 1, self.status.total_steps
@@ -129,9 +105,7 @@ class RobotStateManager:
             self.status.progress     = pct
             self.status.current_step = label
 
-    # ── 직렬화 ────────────────────────────────────────────────────
     def get_status_dict(self) -> dict:
-        """Firebase / SSE 전송용 dict 반환 (깊은 복사)."""
         with self._lock:
             s = self.status
             logs = [e.message for e in s.step_log]
@@ -149,7 +123,6 @@ class RobotStateManager:
                 "collision":    s.collision_detected,
             }
 
-    # ── 비상정지 ──────────────────────────────────────────────────
     def trigger_emergency_stop(self):
         self.emergency_stop.set()
         self.update_status(
@@ -164,7 +137,20 @@ class RobotStateManager:
     def is_stopped(self) -> bool:
         return self.emergency_stop.is_set()
 
-    # ── 중복 주문 방지 ────────────────────────────────────────────
+    # 🚨 [추가됨] 일시정지 제어 함수들
+    def set_pause(self):
+        self.pause_event.clear()
+
+    def clear_pause(self):
+        self.pause_event.set()
+
+    def is_paused(self) -> bool:
+        return not self.pause_event.is_set()
+
+    def wait_if_paused(self):
+        """일시정지 상태라면 풀릴 때까지 스레드를 블로킹(대기)시킴"""
+        self.pause_event.wait()
+
     def mark_order_processed(self, order_key: str):
         with self._lock:
             self.processed_order_keys.add(order_key)

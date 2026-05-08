@@ -11,7 +11,8 @@
             padding: 0;
         }
 
-        html, body {
+        html,
+        body {
             height: 100%;
             margin: 0;
         }
@@ -482,6 +483,54 @@
             font-family: 'Consolas', monospace;
             font-size: 0.75em;
         }
+
+        /* 🚨 [추가] 비상정지/일시정지 오버레이 스타일 */
+        #estop-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(198, 40, 40, 0.85);
+            z-index: 10000;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+        }
+
+        #estop-overlay h1 {
+            font-size: 5rem;
+            margin-bottom: 20px;
+            text-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            animation: blinkestop 1s infinite;
+        }
+
+        @keyframes blinkestop {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.3;
+            }
+        }
+
+        .estop-action-btn {
+            padding: 15px 40px;
+            font-size: 1.5rem;
+            background: white;
+            color: #c62828;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .estop-action-btn:hover {
+            background: #ffebee;
+        }
     </style>
     <script type="importmap">
     {
@@ -495,21 +544,32 @@
 </head>
 
 <body>
-    <!-- ===== 헤더 ===== -->
+    <div id="estop-overlay">
+        <h1 id="estop-title">⛔ EMERGENCY STOP ⛔</h1>
+        <p id="estop-reason" style="font-size: 1.8rem; font-weight: bold;"></p>
+        <p id="estop-desc"
+            style="margin-top: 15px; font-size: 1.1rem; color: white; max-width: 600px; text-align: center; line-height: 1.5;">
+        </p>
+        <div style="margin-top: 30px; display: flex; gap: 20px;">
+            <button id="btn-resume" class="estop-action-btn" style="color: #d29922;" onclick="sendResume()">▶️ 하던 행동부터
+                다시 진행</button>
+            <button id="btn-restart" class="estop-action-btn" style="color: #c62828;" onclick="sendRestart()">🔄 초기화 및 이
+                주문 처음부터 다시 시작</button>
+        </div>
+    </div>
+
     <header class="header">
         <h1>🍱 나만의 도련님 도시락 <span>· 관리자 대시보드</span></h1>
         <div class="status-area">
             <span id="badge-fb" class="badge badge-fb-off">🔴 Firebase</span>
             <span id="badge-robot" class="badge badge-robot-idle">🤖 IDLE</span>
             <span id="clock" class="clock">--:--:--</span>
-            <button class="estop-btn" onclick="sendEStop()">🛑 비상정지</button>
+            <button class="estop-btn" onclick="sendEStop()">🛑 비상정지 / 일시정지</button>
         </div>
     </header>
 
-    <!-- ===== 메인 영역 ===== -->
     <div class="container">
 
-        <!-- KPI 4종 -->
         <div class="card">
             <div class="card-title">📋 대기 (pending)</div>
             <div id="kpi-pending" class="kpi-value kpi-pending">0</div>
@@ -527,7 +587,6 @@
             <div id="kpi-error" class="kpi-value kpi-error">0</div>
         </div>
 
-        <!-- 주문 큐 -->
         <div class="card order-queue">
             <div class="card-title">📑 실시간 주문 큐 (/orders)</div>
             <table>
@@ -549,7 +608,6 @@
             </table>
         </div>
 
-        <!-- 로봇 상태 -->
         <div class="card robot-status">
             <div class="card-title">🤖 M0609 로봇 상태 (/robot_status)</div>
             <div class="info-row"><span>STATE</span><span id="info-state">--</span></div>
@@ -588,61 +646,56 @@
                 <button class="ctrl-btn ctrl-btn-blue" onclick="sendCommand('move_home')">🏠 홈 이동</button>
                 <button class="ctrl-btn ctrl-btn-orange" onclick="sendCommand('gripper_open')">🤏 그리퍼 OPEN</button>
                 <button class="ctrl-btn ctrl-btn-orange" onclick="sendCommand('gripper_close')">✊ 그리퍼 CLOSE</button>
-                <button class="ctrl-btn" onclick="sendCommand('')">↩ 명령 초기화</button>
+                <button class="ctrl-btn" onclick="sendCommand('reset')">↩ 상태 리셋</button>
             </div>
         </div>
 
-        <!-- 작업 진행률 -->
-        <div class="card" style="grid-column: span 2; overflow: hidden; display:flex; flex-direction:column; padding: 8px 12px;">
+        <div class="card"
+            style="grid-column: span 2; overflow: hidden; display:flex; flex-direction:column; padding: 8px 12px;">
             <div class="card-title">📊 작업 진행률</div>
-            <div style="display: grid; grid-template-columns: 160px 1fr; gap: 14px; flex:1; min-height:0; align-items:stretch;">
+            <div
+                style="display: grid; grid-template-columns: 160px 1fr; gap: 14px; flex:1; min-height:0; align-items:stretch;">
 
-                <!-- 큰 원형 게이지 -->
                 <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px;">
                     <div style="position:relative; width:140px; height:140px;">
-                        <!-- 배경 트랙 -->
                         <svg viewBox="0 0 120 120" style="width:140px; height:140px; position:absolute; top:0; left:0;">
                             <defs>
                                 <linearGradient id="arcGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                                    <stop offset="0%" style="stop-color:#1f6feb"/>
-                                    <stop offset="100%" style="stop-color:#3fb950"/>
+                                    <stop offset="0%" style="stop-color:#1f6feb" />
+                                    <stop offset="100%" style="stop-color:#3fb950" />
                                 </linearGradient>
                             </defs>
-                            <!-- 배경 원 -->
-                            <circle cx="60" cy="60" r="50" fill="none" stroke="#1e1e30" stroke-width="10"/>
-                            <!-- 진행 원호 -->
-                            <circle id="progress-circle" cx="60" cy="60" r="50"
-                                fill="none" stroke="url(#arcGrad)" stroke-width="10"
-                                stroke-linecap="round"
-                                stroke-dasharray="0 314.16"
-                                transform="rotate(-90 60 60)"
-                                style="transition: stroke-dasharray 0.6s ease;"/>
-                            <!-- 틱 마크 (5단계) -->
+                            <circle cx="60" cy="60" r="50" fill="none" stroke="#1e1e30" stroke-width="10" />
+                            <circle id="progress-circle" cx="60" cy="60" r="50" fill="none" stroke="url(#arcGrad)"
+                                stroke-width="10" stroke-linecap="round" stroke-dasharray="0 314.16"
+                                transform="rotate(-90 60 60)" style="transition: stroke-dasharray 0.6s ease;" />
                             <g stroke="#30363d" stroke-width="2">
-                                <line x1="60" y1="5"  x2="60" y2="14"  transform="rotate(0   60 60)"/>
-                                <line x1="60" y1="5"  x2="60" y2="14"  transform="rotate(72  60 60)"/>
-                                <line x1="60" y1="5"  x2="60" y2="14"  transform="rotate(144 60 60)"/>
-                                <line x1="60" y1="5"  x2="60" y2="14"  transform="rotate(216 60 60)"/>
-                                <line x1="60" y1="5"  x2="60" y2="14"  transform="rotate(288 60 60)"/>
+                                <line x1="60" y1="5" x2="60" y2="14" transform="rotate(0   60 60)" />
+                                <line x1="60" y1="5" x2="60" y2="14" transform="rotate(72  60 60)" />
+                                <line x1="60" y1="5" x2="60" y2="14" transform="rotate(144 60 60)" />
+                                <line x1="60" y1="5" x2="60" y2="14" transform="rotate(216 60 60)" />
+                                <line x1="60" y1="5" x2="60" y2="14" transform="rotate(288 60 60)" />
                             </g>
                         </svg>
-                        <!-- 중앙 텍스트 -->
-                        <div style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center; pointer-events:none;">
-                            <div id="progress-pct" style="font-size:1.8em; font-weight:bold; color:#58a6ff; line-height:1;">0%</div>
-                            <div id="progress-step" style="font-size:0.62em; color:#8b949e; margin-top:3px; white-space:nowrap;">대기 중</div>
+                        <div
+                            style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center; pointer-events:none;">
+                            <div id="progress-pct"
+                                style="font-size:1.8em; font-weight:bold; color:#58a6ff; line-height:1;">0%</div>
+                            <div id="progress-step"
+                                style="font-size:0.62em; color:#8b949e; margin-top:3px; white-space:nowrap;">대기 중</div>
                         </div>
                     </div>
-                    <!-- 현재 작업 라벨 -->
-                    <div style="font-size:0.72em; color:#f0883e; text-align:center; max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                    <div
+                        style="font-size:0.72em; color:#f0883e; text-align:center; max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
                         <span id="current-step-label">--</span>
                     </div>
                 </div>
 
-                <!-- 로그 + 진행바 -->
-                <div style="min-width:0; display:flex; flex-direction:column; min-height:0; justify-content:space-between;">
-                    <!-- 상단: 진행 막대 -->
+                <div
+                    style="min-width:0; display:flex; flex-direction:column; min-height:0; justify-content:space-between;">
                     <div style="flex-shrink:0; margin-bottom:6px;">
-                        <div style="display:flex; justify-content:space-between; font-size:0.7em; color:#8b949e; margin-bottom:3px;">
+                        <div
+                            style="display:flex; justify-content:space-between; font-size:0.7em; color:#8b949e; margin-bottom:3px;">
                             <span>진행률</span><span id="progress-bar-label">0 / 0</span>
                         </div>
                         <div style="background:#21262d; border-radius:6px; height:8px; overflow:hidden;">
@@ -650,15 +703,14 @@
                                 border-radius:6px; transition:width 0.5s ease;"></div>
                         </div>
                     </div>
-                    <!-- 하단: 스텝 로그 리스트 -->
-                    <div id="step-log-list" style="overflow-y:auto; font-size:0.73em; line-height:1.7; flex:1; min-height:0;">
+                    <div id="step-log-list"
+                        style="overflow-y:auto; font-size:0.73em; line-height:1.7; flex:1; min-height:0;">
                         <span style="color:#6e7681;">작업 로그가 여기 표시됩니다.</span>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- CCTV -->
         <div class="card cctv">
             <div class="cctv-header">
                 <div class="card-title" style="margin: 0; border: 0; padding: 0;">📷 LIVE CCTV</div>
@@ -682,14 +734,12 @@
             </div>
         </div>
 
-        <!-- 3D URDF Viewer -->
         <div class="card cctv">
             <div class="cctv-header">
                 <div class="card-title" style="margin: 0; border: 0; padding: 0;">🤖 3D URDF VIEWER</div>
                 <span id="v-status" style="color: #8b949e; font-size: 0.8em;">loading...</span>
             </div>
             <div class="cctv-frame" id="viewer3d" style="background: #0a0a1a;">
-                <!-- ThreeJS Canvas will be injected here -->
             </div>
             <div class="cctv-config">
                 <input type="text" id="urdf-url" placeholder="http://localhost:8080/urdf/m0609_rg2.urdf"
@@ -698,7 +748,6 @@
             </div>
         </div>
 
-        <!-- 메뉴 설정 -->
         <div class="card menu-config">
             <div class="card-title">🥗 메뉴 구성 (/menu_config)</div>
             <div class="menu-grid">
@@ -713,7 +762,6 @@
             </div>
         </div>
 
-        <!-- Raw DB 뷰어 (부분 실행 툴바 추가) -->
         <div class="card raw-viewer">
             <div class="card-title">💾 Firebase Raw DB (실시간)</div>
             <div class="raw-toolbar">
@@ -742,7 +790,6 @@
 
     </div>
 
-    <!-- ===== Firebase ===== -->
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
     <script>
@@ -837,6 +884,34 @@
             const stateBadge = document.getElementById('badge-robot');
             const state = s.state || 'idle';
 
+            // 🚨 비상정지/일시정지 화면 팝업 제어
+            const estopOverlay = document.getElementById('estop-overlay');
+            const estopTitle = document.getElementById('estop-title');
+            const estopReason = document.getElementById('estop-reason');
+            const estopDesc = document.getElementById('estop-desc');
+            const btnResume = document.getElementById('btn-resume');
+            const btnRestart = document.getElementById('btn-restart');
+
+            if (state === 'collision' || state === 'error') {
+                estopOverlay.style.display = 'flex';
+                estopOverlay.style.background = 'rgba(198, 40, 40, 0.85)'; // 빨간색
+                estopTitle.textContent = '⛔ 외력 감지 (안전 정지) ⛔';
+                estopReason.textContent = s.current_task || "로봇이 물리적 충돌을 감지했습니다.";
+                estopDesc.textContent = "안전을 위해 3초 대기 후 로봇이 홈으로 대피했습니다. 현장을 확인한 후 아래 버튼을 누르면 이 주문을 [1단계]부터 다시 시작합니다.";
+                btnResume.style.display = 'none';
+                btnRestart.style.display = 'inline-block';
+            } else if (state === 'paused') {
+                estopOverlay.style.display = 'flex';
+                estopOverlay.style.background = 'rgba(210, 153, 34, 0.85)'; // 노란색
+                estopTitle.textContent = '⏸️ 시스템 일시 정지됨 ⏸️';
+                estopReason.textContent = "관리자에 의해 로봇 동작이 멈췄습니다.";
+                estopDesc.textContent = "작업 재개 버튼을 누르면 로봇이 멈춘 부분부터 이어서 작업을 끝까지 진행합니다.";
+                btnResume.style.display = 'inline-block';
+                btnRestart.style.display = 'none';
+            } else {
+                if (estopOverlay) estopOverlay.style.display = 'none';
+            }
+
             stateEl.textContent = state.toUpperCase();
             if (state === 'idle') {
                 stateBadge.textContent = '🤖 IDLE';
@@ -844,8 +919,11 @@
             } else if (state === 'moving') {
                 stateBadge.textContent = '🤖 MOVING';
                 stateBadge.className = 'badge badge-robot-moving';
-            } else if (state === 'error') {
+            } else if (state === 'error' || state === 'collision') {
                 stateBadge.textContent = '🤖 ERROR';
+                stateBadge.className = 'badge badge-robot-error';
+            } else if (state === 'paused') {
+                stateBadge.textContent = '🤖 PAUSED';
                 stateBadge.className = 'badge badge-robot-error';
             }
 
@@ -862,7 +940,6 @@
             const cstep = s.current_step || (state === 'idle' ? '대기 중' : '--');
             const logs = s.step_log || [];
 
-            // 원형 게이지: r=50, 둘레=314.16
             const circle = document.getElementById('progress-circle');
             if (circle) {
                 const circ = 314.16;
@@ -895,7 +972,8 @@
                     const color = l.startsWith('✅') ? '#3fb950'
                         : l.startsWith('❌') ? '#f85149'
                             : l.startsWith('⏭️') ? '#8b949e'
-                                : '#f0883e';
+                                : l.startsWith('🛑') ? '#da3633'
+                                    : '#f0883e';
                     return `<div style="color:${color}; padding:2px 0; border-bottom:1px solid #21262d;">${l}</div>`;
                 }).join('');
             } else if (logEl && logs.length === 0) {
@@ -927,9 +1005,20 @@
             console.log('[CMD] ' + type);
         }
 
+        // 🚨 3가지 정지/복구 관련 명령 추가
         function sendEStop() {
-            if (confirm('🛑 비상 정지를 실행할까요?')) {
-                sendCommand('emergency_stop');
+            if (confirm('⏸️ 로봇을 일시 정지하시겠습니까?\n팝업을 닫으면 하던 행동부터 다시 진행됩니다.')) {
+                sendCommand('pause');
+            }
+        }
+
+        function sendResume() {
+            sendCommand('resume');
+        }
+
+        function sendRestart() {
+            if (confirm('충돌 원인이 제거되었습니까?\n로봇을 초기화하고 실패한 주문을 처음부터 다시 시작합니다.')) {
+                sendCommand('reset_and_restart');
             }
         }
 

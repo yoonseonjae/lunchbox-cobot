@@ -23,33 +23,21 @@ from rclpy.logging import get_logger as _get_logger
 
 _logger = _get_logger('lunchbox_robot_node')
 
-# ── 기본 설정 ─────────────────────────────────────────────────────────────
 ROBOT_ID    = "dsr01"
 ROBOT_MODEL = "m0609"
 
 DR_init.__dsr__id    = ROBOT_ID
 DR_init.__dsr__model = ROBOT_MODEL
 
-# Firebase 설정
-SERVICE_ACCOUNT_KEY = os.path.expanduser(
-    "~/cobot_ws/src/cobot1/config/serviceAccountKey.json"
-)
-DATABASE_URL = (
-    "https://rokey-d3991-default-rtdb.asia-southeast1.firebasedatabase.app"
-)
+SERVICE_ACCOUNT_KEY = os.path.expanduser("~/cobot_ws/src/cobot1/config/serviceAccountKey.json")
+DATABASE_URL = "https://rokey-d3991-default-rtdb.asia-southeast1.firebasedatabase.app"
 
-
-# ============================================================================
-# main
-# ============================================================================
 def main(args=None) -> None:
-    # ── 1. ROS2 초기화 ────────────────────────────────────────────────────
     rclpy.init(args=args)
     node = rclpy.create_node("lunchbox_robot_node", namespace=ROBOT_ID)
     DR_init.__dsr__node = node
     node.get_logger().info(f"노드 '{ROBOT_ID}/lunchbox_robot_node' 생성")
 
-    # ── 2. DSR_ROBOT2 import (노드 생성 이후에만 가능) ─────────────────────
     try:
         from DSR_ROBOT2 import (
             movej, movel, mwait, amovej, amovel,
@@ -60,6 +48,8 @@ def main(args=None) -> None:
             check_motion,
             get_robot_state,
             set_robot_mode,
+            # 🚨 [복구됨] 외력 감지 센서 API
+            get_tool_force, get_external_torque,
             DR_BASE
         )
         from DSR_ROBOT2 import ROBOT_MODE_AUTONOMOUS
@@ -69,20 +59,18 @@ def main(args=None) -> None:
         rclpy.shutdown()
         return
 
-    # 로봇 모드 자율 설정 (공식 가이드 기준)
     try:
         set_robot_mode(ROBOT_MODE_AUTONOMOUS)
     except Exception as e:
         node.get_logger().error(f"set_robot_mode 실패: {e}")
 
-    # ── 3. 컴포넌트 생성 ──────────────────────────────────────────────────
     from .coordinate_manager import CoordinateManager
     from .state_manager      import RobotStateManager
     from .robot_client       import RobotClient
     from .robot_controller   import RobotController
 
-    coord_mgr    = CoordinateManager()          # YAML 좌표 로드
-    state_mgr    = RobotStateManager()          # 중앙 상태
+    coord_mgr    = CoordinateManager()         
+    state_mgr    = RobotStateManager()          
     robot_client = RobotClient(
         vel = coord_mgr.velocity,
         acc = coord_mgr.acceleration,
@@ -93,10 +81,11 @@ def main(args=None) -> None:
         wait, drl_script_stop,
         check_motion, drl_script_stop,
         get_robot_state,
+        # 🚨 [복구됨] 클라이언트에 센서 주입
+        get_tool_force, get_external_torque,
         posj, posx, DR_BASE,
     )
 
-    # ── 4. OrderRepository 선택 ───────────────────────────────────────────
     use_firebase = os.path.exists(SERVICE_ACCOUNT_KEY)
 
     if use_firebase:
@@ -111,7 +100,6 @@ def main(args=None) -> None:
         order_repo = MockOrderRepository()
         node.get_logger().info("ℹ️  MockOrderRepository 사용 (Firebase 없음)")
 
-    # ── 5. RobotController 시작 ───────────────────────────────────────────
     controller = RobotController(
         node         = node,
         state_mgr    = state_mgr,
@@ -124,7 +112,6 @@ def main(args=None) -> None:
         node.get_logger().error("컨트롤러 시작 실패 → 종료")
         return
 
-    # ── 6. 종료 대기 ──────────────────────────────────────────────────────
     try:
         controller.join()
     except KeyboardInterrupt:
@@ -135,7 +122,6 @@ def main(args=None) -> None:
         if rclpy.ok():
             rclpy.shutdown()
         _logger.info("종료 완료")
-
 
 if __name__ == "__main__":
     main()
