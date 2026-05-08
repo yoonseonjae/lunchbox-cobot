@@ -70,13 +70,12 @@ class TraySetupStage(BaseStage):
             return StageResult.SUCCESS
 
         except Exception as e:
-            print(f"[TraySetup] 오류: {e}")
+            self._logger.error(f"오류: {e}")
             return StageResult.ERROR
 
 
 # ============================================================================
-# Stage 2 : 서브 반찬 (1종)
-# ============================================================================
+# Stage 2 : 서브 반찬 (씔0)
 class SubDishStage(BaseStage):
     """
     서브 반찬 1종의 Pick & Place 스테이지.
@@ -94,7 +93,7 @@ class SubDishStage(BaseStage):
         try:
             wp = self.cm.sub_dish(self.dish_name)
         except KeyError as e:
-            print(f"[SubDish] 좌표 없음: {e}")
+            self._logger.error(f"SubDish 좌표 없음: {e}")
             return StageResult.ERROR
 
         try:
@@ -127,7 +126,7 @@ class SubDishStage(BaseStage):
             return StageResult.SUCCESS
 
         except Exception as e:
-            print(f"[SubDish-{self.dish_name}] 오류: {e}")
+            self._logger.error(f"오류: {e}")
             return StageResult.ERROR
 
 
@@ -188,7 +187,7 @@ class MainDishStage(BaseStage):
             return StageResult.SUCCESS
 
         except Exception as e:
-            print(f"[MainDish] 오류: {e}")
+            self._logger.error(f"오류: {e}")
             return StageResult.ERROR
 
 
@@ -257,7 +256,7 @@ class RiceStage(BaseStage):
             return StageResult.SUCCESS
 
         except Exception as e:
-            print(f"[Rice] 오류: {e}")
+            self._logger.error(f"오류: {e}")
             return StageResult.ERROR
 
 
@@ -300,11 +299,11 @@ class DeliveryStage(BaseStage):
             # 후퇴 (실패해도 배달 완료로 처리)
             result = self._movel(c5["p013_l"], "📦 [5/5] 후퇴")
             if not result:
-                print("[Delivery] ⚠️ 후퇴 미완료 (비상정지 가능성)")
+                self._logger.warn("후퇴 미완료 (비상정지 가능성)")
 
             self._tick("📦 [5/5] 식판 배달 완료", done=True)
             return StageResult.SUCCESS
 
         except Exception as e:
-            print(f"[Delivery] 오류: {e}")
+            self._logger.error(f"오류: {e}")
             return StageResult.ERROR

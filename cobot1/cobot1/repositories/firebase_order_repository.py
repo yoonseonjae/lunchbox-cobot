@@ -12,7 +12,11 @@ import os
 import time
 from typing import Callable, Set
 
+from rclpy.logging import get_logger
+
 from .order_repository import Order, OrderRepository
+
+_logger = get_logger('firebase_order_repository')
 
 # Firebase 선택적 import
 _FIREBASE_OK = False
@@ -21,7 +25,7 @@ try:
     from firebase_admin import credentials, db as firebase_db
     _FIREBASE_OK = True
 except ImportError:
-    print("[Firebase] ⚠️ firebase_admin 없음 - 오프라인 모드")
+    _logger.warn("firebase_admin 없음 - 오프라인 모드")
 
 
 VALID_COMMANDS = {
@@ -48,20 +52,20 @@ class FirebaseOrderRepository(OrderRepository):
         if not _FIREBASE_OK:
             return
         if not os.path.exists(credentials_path):
-            print(f"[Firebase] ❌ 키 파일 없음: {credentials_path}")
+            _logger.error(f"키 파일 없음: {credentials_path}")
             return
 
         try:
             cred = credentials.Certificate(credentials_path)
             firebase_admin.initialize_app(cred, {"databaseURL": database_url})
             self._available = True
-            print("[Firebase] ✅ 초기화 완료")
+            _logger.info("✅ Firebase 초기화 완료")
         except ValueError:
             # 이미 초기화됨
             self._available = True
-            print("[Firebase] 이미 초기화됨")
+            _logger.info("Firebase 이미 초기화됨")
         except Exception as e:
-            print(f"[Firebase] 초기화 실패: {e}")
+            _logger.error(f"Firebase 초기화 실패: {e}")
 
     @property
     def available(self) -> bool:
@@ -88,7 +92,7 @@ class FirebaseOrderRepository(OrderRepository):
                     self._try_enqueue(key, event.data, callback)
 
         firebase_db.reference("/orders").listen(_on_event)
-        print("[Firebase] /orders 리스너 등록")
+        _logger.info("/orders 리스너 등록")
 
     def _try_enqueue(self, key: str, data: dict, callback):
         if not data or data.get("status") != "pending":
@@ -104,7 +108,7 @@ class FirebaseOrderRepository(OrderRepository):
             target_stage = data.get("target_stage", 0),
             run_mode     = data.get("run_mode", "from"),
         )
-        print(f"[Firebase] 주문 수신: {key}")
+        _logger.info(f"주문 수신: {key}")
         callback(order)
 
     # ── 주문 상태 변경 ─────────────────────────────────────────────
@@ -123,7 +127,7 @@ class FirebaseOrderRepository(OrderRepository):
         try:
             firebase_db.reference(f"/orders/{key}").update(payload)
         except Exception as e:
-            print(f"[Firebase] 주문 업데이트 실패({key}): {e}")
+            _logger.error(f"주문 업데이트 실패({key}): {e}")
 
     # ── 명령 리스닝 ───────────────────────────────────────────────
     def listen_commands(self, callback: Callable[[str], None]):
@@ -139,15 +143,15 @@ class FirebaseOrderRepository(OrderRepository):
             if not cmd_type or ts <= self._last_cmd_ts:
                 return
             if cmd_type not in VALID_COMMANDS:
-                print(f"[Firebase] ⚠️ 알 수 없는 명령 '{cmd_type}' → 무시")
+                _logger.warn(f"알 수 없는 명령 '{cmd_type}' → 무시")
                 return
 
             self._last_cmd_ts = ts
-            print(f"[Firebase] 명령 수신: {cmd_type}")
+            _logger.info(f"명령 수신: {cmd_type}")
             callback(cmd_type)
 
         firebase_db.reference("/command").listen(_on_cmd)
-        print("[Firebase] /command 리스너 등록")
+        _logger.info("/command 리스너 등록")
 
     # ── 로봇 상태 업로드 ──────────────────────────────────────────
     def upload_robot_status(self, payload: dict):
@@ -156,4 +160,4 @@ class FirebaseOrderRepository(OrderRepository):
         try:
             firebase_db.reference("/robot_status").update(payload)
         except Exception as e:
-            print(f"[Firebase] 상태 업로드 실패: {e}")
+            _logger.error(f"상태 업로드 실패: {e}")
