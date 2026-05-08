@@ -3,6 +3,14 @@
 **Doosan DSR m0609 협동로봇**을 활용한 자동 도시락 조립 시스템입니다.  
 웹앱에서 주문 → Firebase → ROS2 → 실제 로봇 팔 동작까지의 전체 파이프라인을 구현합니다.
 
+## 문서
+
+| 문서 | 설명 |
+|------|------|
+| [실행 가이드](docs/RUN_GUIDE.md) | Terminal 1~5 순서별 실행 명령어 및 비상정지 |
+| [시스템 플로우차트](docs/SYSTEM_FLOWCHART.md) | 전체 시스템 구성 및 데이터 흐름 다이어그램 |
+| [시퀀스 다이어그램](docs/SEQUENCE_DIAGRAM.md) | 주문 접수부터 완료까지 단계별 시퀀스 |
+
 ---
 
 ## 시스템 구조
@@ -125,21 +133,30 @@ pip install firebase-admin flask opencv-python aiohttp
 
 ### 실행 순서
 ```bash
-# 1. 로봇 드라이버 + RViz
+# Terminal 1 — DSR 드라이버
+cd ~/cobot_ws && source install/setup.bash
 ros2 launch dsr_bringup2 dsr_bringup2_rviz.launch.py \
-    model:=m0609 mode:=real host:=192.168.1.100 port:=12345
+    model:=m0609 mode:=real host:=192.168.137.100 port:=12345
 
-# 2. 메인 로봇 제어 노드
+# Terminal 2 — 메인 로봇 노드
+cd ~/cobot_ws && source install/setup.bash
 ros2 run cobot1 lunchbox_robot_node
+# → [Main] ✅ 홈 이동 완료 확인 후
 
-# 3. Firebase ↔ ROS2 브릿지
+# Terminal 3 — Firebase ↔ ROS2 브릿지  ← 순서 변경
+cd ~/cobot_ws && source install/setup.bash
 ros2 run cobot1 lunchbox_database_node
 
-# 4. 모니터링 대시보드
+# Terminal 4 — 관리자 웹 대시보드  ← 순서 변경
+cd ~/cobot_ws && source install/setup.bash
 ros2 run cobot1 robot_dashboard
 
-# 5. CCTV 카메라 스트리밍
+# Terminal 5 — 카메라 스트림
+cd ~/cobot_ws && source install/setup.bash
 ros2 run cobot1 camera_stream_server
+
+# Browser
+xdg-open file:///home/yoon/cobot_ws/src/lunchbox_web/admin_index.html
 ```
 
 ---

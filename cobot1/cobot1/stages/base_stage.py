@@ -13,6 +13,8 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import List
 
+from rclpy.logging import get_logger
+
 
 class StageResult(Enum):
     SUCCESS = "success"
@@ -46,6 +48,7 @@ class BaseStage(ABC):
         self.rc   = robot_client
         self.cm   = coord_manager
         self.name = name
+        self._logger = get_logger(name)        
 
     @abstractmethod
     def execute(self) -> StageResult:
@@ -58,40 +61,65 @@ class BaseStage(ABC):
         return not self.sm.is_stopped()
 
     # ── 이동 헬퍼 ─────────────────────────────────────────────────
-    def _movej(self, coords: List[float], radius: int = None, label: str = "") -> bool:
+    def _movej(self, 
+               coords: List[float], 
+               label: str = "") -> bool:
         """관절 이동. 비상정지 시 False 반환."""
         if not self._ok():
             return False
         try:
-            self.rc.movej(coords, radius)
+            self.rc.do_movej(coords)
         except Exception as e:
-            print(f"[{self.name}] _movej 오류: {e}")
+            self._logger.error(f"_movej 오류: {e}")
             return False
         if label:
             self._tick(label)
         return self._ok()
 
-    def _amovej(self, coords: List[float], radius: int = None, label: str = "") -> bool:
-        """관절 비동기 이동 (amovej + mwait). 비상정지 시 False 반환."""
-        if not self._ok():
-            return False
-        try:
-            self.rc.amovej(coords, radius)
-        except Exception as e:
-            print(f"[{self.name}] _amovej 오류: {e}")
-            return False
-        if label:
-            self._tick(label)
-        return self._ok()
-
-    def _movel(self, coords: List[float], radius: int = None, label: str = "") -> bool:
+    def _movel(self, 
+               coords: List[float], 
+               label: str = "") -> bool:
         """직선(Cartesian) 이동. 비상정지 시 False 반환."""
         if not self._ok():
             return False
         try:
-            self.rc.movel(coords, radius)
+            self.rc.do_movel(coords)
         except Exception as e:
-            print(f"[{self.name}] _movel 오류: {e}")
+            self._logger.error(f"_movel 오류: {e}")
+            return False
+        if label:
+            self._tick(label)
+        return self._ok()
+    
+    def _amovej(self, 
+                coords: List[float], 
+                label: str = "") -> bool:
+        """관절 이동 (비동기). 완료까지 check_motion() 루프 대기."""
+        if not self._ok():
+            return False
+        try:
+            self.rc.do_amovej(coords)
+            if not self.rc.wait_motion_done():
+                return False
+        except Exception as e:
+            self._logger.error(f"_amovej 오류: {e}")
+            return False
+        if label:
+            self._tick(label)
+        return self._ok()
+    
+    def _amovel(self, 
+                coords: List[float], 
+                label: str = "") -> bool:
+        """직선(Cartesian) 이동 (비동기). 완료까지 check_motion() 루프 대기."""
+        if not self._ok():
+            return False
+        try:
+            self.rc.do_amovel(coords)
+            if not self.rc.wait_motion_done():
+                return False
+        except Exception as e:
+            self._logger.error(f"_amovel 오류: {e}")
             return False
         if label:
             self._tick(label)
@@ -112,7 +140,7 @@ class BaseStage(ABC):
 
 
     # ── 그리퍼 헬퍼 ──────────────────────────────────────────────
-    def _gripper(self, width_mm: int):
+    def _gripper(self, width_mm: int) -> None:
         """그리퍼 폭 설정 (5 / 20 / 30 / 50 / 100 mm)."""
         self.rc.set_gripper(width_mm)
 

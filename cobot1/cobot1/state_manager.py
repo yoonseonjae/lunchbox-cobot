@@ -15,6 +15,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import List
 
+from rclpy.logging import get_logger
+
+_logger = get_logger('state_manager')
+
 
 # ============================================================================
 # Enum 정의
@@ -103,7 +107,7 @@ class RobotStateManager:
             logs.append(entry)
             if len(logs) > self.MAX_LOG:
                 logs.pop(0)
-        print(f"[Step] {entry.message}")
+        _logger.info(entry.message)
 
     def reset_progress(self, total: int):
         """새 주문 시작 시 진행 상태 초기화."""

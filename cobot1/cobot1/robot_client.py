@@ -18,7 +18,16 @@ Stage 클래스들은 이 클라이언트만 통해 로봇을 움직임.
 import time
 from typing import List
 
+from rclpy.logging import get_logger
+
+# ── 상수 ──────────────────────────────────────────────────────────────────
+GRIPPER_SETTLE_SEC:        float = 2.0   # 그리퍼 안착 대기
+MOTION_START_DELAY_SEC:    float = 0.2   # 비동기 이동 후 Busy 상태 진입 대기
+MOTION_CHECK_INTERVAL_SEC: float = 0.1   # check_motion() 폴링 주기
+
 ON, OFF = 1, 0
+
+_logger = get_logger('robot_client')
 
 # 그리퍼 폭 → DO 핀 설정 테이블
 _GRIPPER_MAP = {
@@ -38,33 +47,44 @@ class RobotClient:
     사용 패턴::
 
         client = RobotClient(vel=30, acc=30)
-        client.inject(movej, movel, mwait, set_digital_output,
-                      get_digital_input, wait, drl_script_stop,
+        client.inject(movej, movel, mwait, amovej, amovel,
+                      set_digital_output, get_digital_input,
+                      wait, drl_script_stop,
+                      check_motion, move_stop, get_robot_state,
                       posj, posx, DR_BASE)
     """
 
     def __init__(self, vel: int = 30, acc: int = 30):
         self.vel = vel
         self.acc = acc
+        self.ref = None  # DR_BASE / DR_TOOL 중 선택 (좌표계 참조용)
 
         # DSR 함수들 (inject 전까지 None)
-        self._movej              = None
-        self._movel              = None
-        self._mwait              = None
-        self._set_digital_output = None
-        self._get_digital_input  = None
-        self._wait               = None
-        self._drl_script_stop    = None
-        self._posj               = None
-        self._posx               = None
-        self._DR_BASE            = None
+        self._drs_movej              = None
+        self._drs_movel              = None
+        self._drs_amovej             = None
+        self._drs_amovel             = None
+        self._drs_mwait              = None
+        self._drs_set_digital_output = None
+        self._drs_get_digital_input  = None
+        self._drs_wait               = None
+        self._drs_drl_script_stop    = None
+        self._drs_check_motion       = None
+        self._drs_move_stop          = None
+        self._drs_get_robot_state    = None
+        self._drs_posj               = None
+        self._drs_posx               = None
+        self._drs_DR_BASE            = None
 
     def inject(self,
                movej, movel, mwait, amovej, amovel,
                set_digital_output, get_digital_input,
                wait, drl_script_stop,
+               check_motion, move_stop,
+               get_robot_state,
                posj, posx, DR_BASE):
         """main() 내부에서 DSR import 후 호출."""
+<<<<<<< HEAD
         self._movej              = movej
         self._movel              = movel
         self._mwait              = mwait
@@ -90,10 +110,36 @@ class RobotClient:
         # self._mwait()
 
     def movel(self, coords: List[float], radius = None):
+=======
+        self._drs_movej              = movej
+        self._drs_movel              = movel
+        self._drs_amovej             = amovej
+        self._drs_amovel             = amovel
+        self._drs_mwait              = mwait
+        self._drs_set_digital_output = set_digital_output
+        self._drs_get_digital_input  = get_digital_input
+        self._drs_wait               = wait
+        self._drs_drl_script_stop    = drl_script_stop
+        self._drs_check_motion       = check_motion
+        self._drs_move_stop          = move_stop
+        self._drs_get_robot_state    = get_robot_state
+        self._drs_posj               = posj
+        self._drs_posx               = posx
+        self._drs_DR_BASE            = DR_BASE
+
+    # ── 이동 ──────────────────────────────────────────────────────
+    def do_movej(self, coords: List[float]) -> None:
+        """관절 이동 (동기)."""
+        self._drs_movej(self._drs_posj(coords), vel=self.vel, acc=self.acc)
+        self._drs_mwait()
+
+    def do_movel(self, coords: List[float]) -> None:
+>>>>>>> origin/main
         """직선(Cartesian) 이동 (동기)."""
-        self._movel(
-            self._posx(coords),
+        self._drs_movel(
+            self._drs_posx(coords),
             vel=self.vel, acc=self.acc,
+<<<<<<< HEAD
             radius=radius,
             ref=self._DR_BASE,
         )
@@ -102,18 +148,35 @@ class RobotClient:
         """직선(Cartesian) 이동 (비동기)"""
         self._amovel(self._posx(coords), vel=self.vel, acc=self.acc, radius=radius)
         # self._mwait()
+=======
+            ref=self._drs_DR_BASE,
+        )
+        self._drs_mwait()
+
+    def do_amovej(self, coords: List[float]) -> None:
+        """관절 이동 (비동기)."""
+        self._drs_amovej(self._drs_posj(coords), vel=self.vel, acc=self.acc)
+
+    def do_amovel(self, coords: List[float]) -> None:
+        """직선(Cartesian) 이동 (비동기)."""
+        self._drs_amovel(
+            self._drs_posx(coords),
+            vel=self.vel, acc=self.acc,
+            ref=self._drs_DR_BASE,
+        )
+>>>>>>> origin/main
 
     # ── 그리퍼 ───────────────────────────────────────────────────
-    def set_gripper(self, width_mm: int):
+    def set_gripper(self, width_mm: int) -> None:
         """그리퍼 폭 설정 (5 / 20 / 30 / 50 / 100 mm)."""
         if width_mm not in _GRIPPER_MAP:
-            raise ValueError(f"[RobotClient] 지원하지 않는 그리퍼 폭: {width_mm}mm")
+            raise ValueError(f"지원하지 않는 그리퍼 폭: {width_mm}mm")
         d1, d2, d3 = _GRIPPER_MAP[width_mm]
-        self._set_digital_output(1, d1)
-        self._set_digital_output(2, d2)
-        self._set_digital_output(3, d3)
-        self._wait(2.0)
-        print(f"[GRIPPER] {width_mm}mm  DO1={d1} DO2={d2} DO3={d3}")
+        self._drs_set_digital_output(1, d1)
+        self._drs_set_digital_output(2, d2)
+        self._drs_set_digital_output(3, d3)
+        self._drs_wait(GRIPPER_SETTLE_SEC)
+        _logger.info(f"그리퍼 {width_mm}mm 설정  DO1={d1} DO2={d2} DO3={d3}")
 
     def check_grip(self):
         """
@@ -134,17 +197,45 @@ class RobotClient:
             return False
         
     # ── 유틸 ──────────────────────────────────────────────────────
-    def wait(self, sec: float):
-        self._wait(sec)
+    def wait(self, sec: float) -> None:
+        """DSR 로봇 내부 대기 (time.sleep 과 다름)."""
+        self._drs_wait(sec)
 
-    def stop(self):
-        """비상 정지 (감속)."""
+    def do_wait(self, sec: float) -> None:
+        """wait() 의 별칭 (하위 호환)."""
+        self._drs_wait(sec)
+
+    def do_mwait(self, sec: float = 0) -> None:
+        """이동 완료 대기. (ROS2 환경에서는 time 인자 미사용)"""
+        self._drs_mwait()
+
+    def check_motion(self) -> int:
+        """현재 이동 상태 반환. 0=Idle, 1=Init, 2=Busy."""
+        return self._drs_check_motion()
+
+    def wait_motion_done(self) -> bool:
+        """비동기 이동 완료 대기. check_motion() 루프 패턴 (공식 가이드 기준).
+        반환값: True=완료, False=rclpy 종료로 중단.
+        """
+        import rclpy
+        time.sleep(MOTION_START_DELAY_SEC)
+        while self._drs_check_motion() != 0:
+            time.sleep(MOTION_CHECK_INTERVAL_SEC)
+            if not rclpy.ok():
+                return False
+        return True
+
+    def move_stop(self, stop_mode: int = 3) -> None:
+        """이동 정지. stop_mode: 3=감속정지(기본), 0=즉시정지."""
         try:
-            self._drl_script_stop(1)
+            self._drs_move_stop(stop_mode)
         except Exception as e:
-            print(f"[RobotClient] stop 오류: {e}")
+            _logger.error(f"move_stop 오류: {e}")
+
+    def do_stop(self) -> None:
+        """비상 정지 (감속) - move_stop(3) 호출."""
+        self.move_stop(3)
 
     def get_robot_state(self) -> int:
         """로봇 상태값 반환 (충돌 감시용)."""
-        from DSR_ROBOT2 import get_robot_state
-        return get_robot_state()
+        return self._drs_get_robot_state()

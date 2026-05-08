@@ -13,7 +13,11 @@ import threading
 import time
 from typing import Callable, List
 
+from rclpy.logging import get_logger
+
 from .order_repository import Order, OrderRepository
+
+_logger = get_logger('mock_order_repository')
 
 
 class MockOrderRepository(OrderRepository):
@@ -37,7 +41,7 @@ class MockOrderRepository(OrderRepository):
         self._order_cb = callback
         t = threading.Thread(target=self._order_dispatch_loop, daemon=True)
         t.start()
-        print("[MockRepo] 주문 리스너 시작 (inject_order 로 삽입)")
+        _logger.info("주문 리스너 시작 (inject_order 로 삽입)")
 
     def _order_dispatch_loop(self):
         while True:
@@ -59,24 +63,24 @@ class MockOrderRepository(OrderRepository):
                 run_mode     = "from",
             )
         self._order_q.put(order)
-        print(f"[MockRepo] 주문 삽입: {order.key}")
+        _logger.info(f"주문 삽입: {order.key}")
 
     # ── 주문 상태 변경 (로그 출력) ─────────────────────────────────
-    def mark_processing(self, order_key: str):
-        print(f"[MockRepo] {order_key} → processing")
+    def mark_processing(self, order_key: str) -> None:
+        _logger.info(f"{order_key} → processing")
 
-    def mark_completed(self, order_key: str):
-        print(f"[MockRepo] {order_key} → completed")
+    def mark_completed(self, order_key: str) -> None:
+        _logger.info(f"{order_key} → completed")
 
-    def mark_error(self, order_key: str):
-        print(f"[MockRepo] {order_key} → error")
+    def mark_error(self, order_key: str) -> None:
+        _logger.info(f"{order_key} → error")
 
     # ── 명령 리스닝 ───────────────────────────────────────────────
     def listen_commands(self, callback: Callable[[str], None]):
         self._cmd_cb = callback
         t = threading.Thread(target=self._cmd_dispatch_loop, daemon=True)
         t.start()
-        print("[MockRepo] 명령 리스너 시작 (inject_command 로 삽입)")
+        _logger.info("명령 리스너 시작 (inject_command 로 삽입)")
 
     def _cmd_dispatch_loop(self):
         while True:
@@ -90,12 +94,12 @@ class MockOrderRepository(OrderRepository):
     def inject_command(self, cmd_type: str):
         """테스트 명령 삽입. 예: inject_command('emergency_stop')"""
         self._cmd_q.put(cmd_type)
-        print(f"[MockRepo] 명령 삽입: {cmd_type}")
+        _logger.info(f"명령 삽입: {cmd_type}")
 
     # ── 로봇 상태 업로드 ──────────────────────────────────────────
-    def upload_robot_status(self, payload: dict):
+    def upload_robot_status(self, payload: dict) -> None:
         with self._lock:
             self._statuses.append(payload)
         state = payload.get("state", "?")
         task  = payload.get("current_task", "?")
-        print(f"[MockRepo] 상태 업로드: state={state} | task={task}")
+        _logger.info(f"상태 업로드: state={state} | task={task}")
