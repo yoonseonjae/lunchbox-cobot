@@ -53,7 +53,7 @@ def main(args=None) -> None:
     try:
         from DSR_ROBOT2 import (
             movej, movel, mwait, amovej, amovel,
-            set_tool, set_tcp, move_stop,
+            set_tool, set_tcp,
             set_digital_output, get_digital_input,
             wait,
             drl_script_stop,
@@ -91,7 +91,7 @@ def main(args=None) -> None:
         movej, movel, mwait, amovej, amovel,
         set_digital_output, get_digital_input,
         wait, drl_script_stop,
-        check_motion, move_stop,
+        check_motion, drl_script_stop,
         get_robot_state,
         posj, posx, DR_BASE,
     )

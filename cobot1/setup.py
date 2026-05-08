@@ -38,6 +38,7 @@ setup(
             'robot_dashboard     = cobot1.robot_dashboard:main',
             'camera_stream_server     = cobot1.camera_stream_server:main',
             'mini_jog                 = cobot1.mini_jog:main',
+            'move_basic               = cobot1.move_basic:main',
         ],
     },
 )
