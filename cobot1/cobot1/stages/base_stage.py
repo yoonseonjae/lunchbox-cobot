@@ -58,12 +58,12 @@ class BaseStage(ABC):
         return not self.sm.is_stopped()
 
     # ── 이동 헬퍼 ─────────────────────────────────────────────────
-    def _movej(self, coords: List[float], r: int, label: str = "") -> bool:
-        """관절 이동. 비상정지 시 False 반환."""
+    def _movej(self, coords: List[float], label: str = "", radius: float = 0) -> bool:
+        """관절 이동. radius > 0 이면 블렌딩. 비상정지 시 False 반환."""
         if not self._ok():
             return False
         try:
-            self.rc.movej(coords, r)
+            self.rc.movej(coords, radius=radius)
         except Exception as e:
             print(f"[{self.name}] _movej 오류: {e}")
             return False
@@ -71,12 +71,12 @@ class BaseStage(ABC):
             self._tick(label)
         return self._ok()
 
-    def _amovej(self, coords: List[float], label: str = "") -> bool:
-        """관절 비동기 이동 (amovej + mwait). 비상정지 시 False 반환."""
+    def _amovej(self, coords: List[float], label: str = "", radius: float = 0) -> bool:
+        """관절 비동기 이동. radius > 0 이면 블렌딩. 비상정지 시 False 반환."""
         if not self._ok():
             return False
         try:
-            self.rc.amovej(coords)
+            self.rc.amovej(coords, radius=radius)
         except Exception as e:
             print(f"[{self.name}] _amovej 오류: {e}")
             return False
@@ -84,18 +84,22 @@ class BaseStage(ABC):
             self._tick(label)
         return self._ok()
 
-    def _movel(self, coords: List[float], r: int, label: str = "") -> bool:
-        """직선(Cartesian) 이동. 비상정지 시 False 반환."""
+    def _movel(self, coords: List[float], label: str = "", radius: float = 0) -> bool:
+        """직선 이동. radius > 0 이면 블렌딩. 비상정지 시 False 반환."""
         if not self._ok():
             return False
         try:
-            self.rc.movel(coords, r)
+            self.rc.movel(coords, radius=radius)
         except Exception as e:
             print(f"[{self.name}] _movel 오류: {e}")
             return False
         if label:
             self._tick(label)
         return self._ok()
+
+    def _mwait(self):
+        """블렌딩 구간 종료 후 수동 완료 대기."""
+        self.rc.mwait()
 
     def _amovel(self, coords: List[float], label: str = "") -> bool:
         """태스크 비동기 이동 (amovel + mwait). 비상정지 시 False 반환"""

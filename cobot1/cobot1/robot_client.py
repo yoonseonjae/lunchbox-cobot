@@ -15,7 +15,6 @@ Stage 클래스들은 이 클라이언트만 통해 로봇을 움직임.
 ==============================================================================
 """
 
-import time
 from typing import List
 
 ON, OFF = 1, 0
@@ -38,9 +37,14 @@ class RobotClient:
     사용 패턴::
 
         client = RobotClient(vel=30, acc=30)
-        client.inject(movej, movel, mwait, set_digital_output,
-                      get_digital_input, wait, drl_script_stop,
-                      posj, posx, DR_BASE)
+        client.inject(movej, movel, mwait, amovej, amovel,
+                      set_digital_output, get_digital_input,
+                      wait, drl_script_stop, posj, posx, DR_BASE)
+
+    블렌딩::
+
+        client.movel(coords, radius=20)  # 다음 동작과 블렌딩 (mwait 생략)
+        client.movej(coords)             # radius=0 → mwait 호출 (정지)
     """
 
     def __init__(self, vel: int = 30, acc: int = 30):
@@ -51,6 +55,8 @@ class RobotClient:
         self._movej              = None
         self._movel              = None
         self._mwait              = None
+        self._amovej             = None
+        self._amovel             = None
         self._set_digital_output = None
         self._get_digital_input  = None
         self._wait               = None
@@ -79,28 +85,42 @@ class RobotClient:
         self._DR_BASE            = DR_BASE
 
     # ── 이동 ──────────────────────────────────────────────────────
-    def movej(self, coords: List[float], r):
-        """관절 이동 (동기)."""
-        self._movej(self._posj(coords), vel=self.vel, acc=self.acc, r=r)
-        self._mwait()
+    def movej(self, coords: List[float], radius: float = 0):
+        """관절 이동 (동기). radius > 0 이면 다음 동작과 블렌딩."""
+        self._movej(self._posj(coords), vel=self.vel, acc=self.acc, radius=radius)
+        if radius == 0:
+            self._mwait()
 
-    def amovej(self, coords: List[float]):
-        """관절 이동 (비동기 발행 후 mwait). plate_finish_a [010] 구간에 사용."""
-        self._amovej(self._posj(coords), vel=self.vel, acc=self.acc)
-        self._mwait()
+    def amovej(self, coords: List[float], radius: float = 0):
+        """관절 비동기 이동. radius > 0 이면 블렌딩."""
+        self._amovej(self._posj(coords), vel=self.vel, acc=self.acc, radius=radius)
+        if radius == 0:
+            self._mwait()
 
-    def movel(self, coords: List[float], r):
-        """직선(Cartesian) 이동 (동기)."""
+    def movel(self, coords: List[float], radius: float = 0):
+        """직선(Cartesian) 이동 (동기). radius > 0 이면 다음 동작과 블렌딩."""
         self._movel(
             self._posx(coords),
             vel=self.vel, acc=self.acc,
-            r=r,
             ref=self._DR_BASE,
+            radius=radius,
         )
-        self._mwait()
-    def amovel(self, coords: List[float]):
-        """직선(Cartesian) 이동 (비동기)"""
-        self._amovel(self._posx(coords), vel=self.vel, acc=self.acc)
+        if radius == 0:
+            self._mwait()
+
+    def amovel(self, coords: List[float], radius: float = 0):
+        """직선(Cartesian) 비동기 이동. radius > 0 이면 블렌딩."""
+        self._amovel(
+            self._posx(coords),
+            vel=self.vel, acc=self.acc,
+            ref=self._DR_BASE,
+            radius=radius,
+        )
+        if radius == 0:
+            self._mwait()
+
+    def mwait(self):
+        """블렌딩 구간 종료 후 수동으로 완료 대기."""
         self._mwait()
 
     # ── 그리퍼 ───────────────────────────────────────────────────

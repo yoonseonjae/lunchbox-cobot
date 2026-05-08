@@ -275,21 +275,21 @@ class DeliveryStage(BaseStage):
         c5 = self.cm.stage(5)
 
         try:
-            # 식판 파지 준비
-            if not self._movel(c5["p004_l"],  "📦 [5/5] 접근"):          return StageResult.STOPPED
-            if not self._movej(c5["p005_j"],  "📦 [5/5] 파지 준비1"):     return StageResult.STOPPED
-            if not self._movej(c5["p006_j"],  "📦 [5/5] 파지 위치"):      return StageResult.STOPPED
+            # 식판 파지 준비 (p004→p005 블렌딩, p006 정지)
+            if not self._movel(c5["p004_l"],  "📦 [5/5] 접근",       radius=20): return StageResult.STOPPED
+            if not self._movej(c5["p005_j"],  "📦 [5/5] 파지 준비1",  radius=20): return StageResult.STOPPED
+            if not self._movej(c5["p006_j"],  "📦 [5/5] 파지 위치"):              return StageResult.STOPPED
 
             # 식판 파지
             self._gripper(5)
             self.rc.wait(1.0)
             self._tick("📦 [5/5] 식판 파지", done=True)
 
-            # 픽업 장소로 이동
+            # 픽업 장소로 이동 (p010 비동기)
             if not self._movel(c5["p007_l"],  "📦 [5/5] 들어올림"):       return StageResult.STOPPED
             if not self._movej(c5["p008_j"],  "📦 [5/5] 이동1"):          return StageResult.STOPPED
             if not self._movel(c5["p009_l"],  "📦 [5/5] 픽업장소 접근"):   return StageResult.STOPPED
-            if not self._movej(c5["p010_j"],  "📦 [5/5] 이동2"):          return StageResult.STOPPED
+            if not self._amovej(c5["p010_j"], "📦 [5/5] 이동2"):          return StageResult.STOPPED
             if not self._movel(c5["p011_l"],  "📦 [5/5] 안착 준비"):      return StageResult.STOPPED
             if not self._movej(c5["p012_j"],  "📦 [5/5] 안착 위치"):      return StageResult.STOPPED
 
