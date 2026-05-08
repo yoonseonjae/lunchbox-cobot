@@ -105,19 +105,22 @@ class SubDishStage(BaseStage):
             self._gripper(100)
 
             # 반찬통 접근 (관절) → 픽 위치 (직선)
-            if not self._movej(pick_wp["pre_pick_j"],        f"🥗 [{self.dish_name}] 픽 준비", r=50):      return StageResult.STOPPED
-            if not self._movel(pick_wp["pick_l"],            f"🥗 [{self.dish_name}] 픽 위치", r=50):      return StageResult.STOPPED
+            if not self._movej(pick_wp["pre_pick_j"],        f"🥗 [{self.dish_name}] 픽 준비", radius=50):      return StageResult.STOPPED
+            if not self._movel(pick_wp["pick_l"],            f"🥗 [{self.dish_name}] 픽 위치", radius=50):      return StageResult.STOPPED
 
             # 집기
             self._gripper(20)
             self.rc.wait(0.5)
+            if not self._check_grip():
+                return
+            
             self._tick(f"🥗 [{self.dish_name}] 집기", done=True)
 
             # 들어올림
-            if not self._amovel(pick_wp["up_pick_l"],         f"🥗 [{self.dish_name}] 들어올림", r=50):     return StageResult.STOPPED
+            if not self._amovel(pick_wp["up_pick_l"],         f"🥗 [{self.dish_name}] 들어올림", radius=50):     return StageResult.STOPPED
 
             # 식판 슬롯 이동 (관절) → 놓기 (직선)
-            if not self._amovej(place_wp["pre_place_j"],       f"🥗 [{self.dish_name}] 슬롯 접근", r=50):    return StageResult.STOPPED
+            if not self._amovej(place_wp["pre_place_j"],       f"🥗 [{self.dish_name}] 슬롯 접근", radius=50):    return StageResult.STOPPED
             if not self._movel(place_wp["place_l"],           f"🥗 [{self.dish_name}] 놓기"):         return StageResult.STOPPED
 
             # 놓기

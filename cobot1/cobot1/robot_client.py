@@ -79,29 +79,29 @@ class RobotClient:
         self._DR_BASE            = DR_BASE
 
     # ── 이동 ──────────────────────────────────────────────────────
-    def movej(self, coords: List[float], r):
+    def movej(self, coords: List[float], radius):
         """관절 이동 (동기)."""
-        self._movej(self._posj(coords), vel=self.vel, acc=self.acc, r=r)
-        self._mwait()
+        self._movej(self._posj(coords), vel=self.vel, acc=self.acc, radius=radius)
+        # self._mwait()
 
-    def amovej(self, coords: List[float], r):
+    def amovej(self, coords: List[float], radius):
         """관절 이동 (비동기 발행 후 mwait). plate_finish_a [010] 구간에 사용."""
-        self._amovej(self._posj(coords), vel=self.vel, acc=self.acc, r=r)
-        self._mwait()
+        self._amovej(self._posj(coords), vel=self.vel, acc=self.acc, radius=radius)
+        # self._mwait()
 
-    def movel(self, coords: List[float], r):
+    def movel(self, coords: List[float], radius):
         """직선(Cartesian) 이동 (동기)."""
         self._movel(
             self._posx(coords),
             vel=self.vel, acc=self.acc,
-            r=r,
+            radius=radius,
             ref=self._DR_BASE,
         )
-        self._mwait()
-    def amovel(self, coords: List[float], r):
+        # self._mwait()
+    def amovel(self, coords: List[float], radius):
         """직선(Cartesian) 이동 (비동기)"""
-        self._amovel(self._posx(coords), vel=self.vel, acc=self.acc, r=r)
-        self._mwait()
+        self._amovel(self._posx(coords), vel=self.vel, acc=self.acc, radius=radius)
+        # self._mwait()
 
     # ── 그리퍼 ───────────────────────────────────────────────────
     def set_gripper(self, width_mm: int):
@@ -115,6 +115,24 @@ class RobotClient:
         self._wait(2.0)
         print(f"[GRIPPER] {width_mm}mm  DO1={d1} DO2={d2} DO3={d3}")
 
+    def check_grip(self):
+        """
+        OnRobot RG2 그리퍼가 물체를 잡았는지 확인하는 함수
+        Returns:
+            True  → 물체를 잡은 상태
+            False → 물체를 잡지 못한 상태
+        """
+        self._wait(0.5)  # 그리퍼 동작 안정화 대기
+        
+        di_1 = self._get_digital_input(1)  # WebLogic #3 OUT 1번 읽기
+        di_2 = self._get_digital_input(2)  # WebLogic #3 OUT 2번 읽기
+        di_3 = self._get_digital_input(3)  # WebLogic #3 OUT 3번 읽기
+        
+        if (di_1 == 1 and di_2 == 0 and di_3 == 1):
+            return True
+        elif (di_1 == 1 and di_2 == 1 and di_3 == 0):
+            return False
+        
     # ── 유틸 ──────────────────────────────────────────────────────
     def wait(self, sec: float):
         self._wait(sec)

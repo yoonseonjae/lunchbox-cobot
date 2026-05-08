@@ -58,12 +58,12 @@ class BaseStage(ABC):
         return not self.sm.is_stopped()
 
     # ── 이동 헬퍼 ─────────────────────────────────────────────────
-    def _movej(self, coords: List[float], r: int, label: str = "") -> bool:
+    def _movej(self, coords: List[float], radius: int, label: str = "") -> bool:
         """관절 이동. 비상정지 시 False 반환."""
         if not self._ok():
             return False
         try:
-            self.rc.movej(coords, r)
+            self.rc.movej(coords, radius)
         except Exception as e:
             print(f"[{self.name}] _movej 오류: {e}")
             return False
@@ -71,12 +71,12 @@ class BaseStage(ABC):
             self._tick(label)
         return self._ok()
 
-    def _amovej(self, coords: List[float], r: int, label: str = "") -> bool:
+    def _amovej(self, coords: List[float], radius: int, label: str = "") -> bool:
         """관절 비동기 이동 (amovej + mwait). 비상정지 시 False 반환."""
         if not self._ok():
             return False
         try:
-            self.rc.amovej(coords, r)
+            self.rc.amovej(coords, radius)
         except Exception as e:
             print(f"[{self.name}] _amovej 오류: {e}")
             return False
@@ -84,12 +84,12 @@ class BaseStage(ABC):
             self._tick(label)
         return self._ok()
 
-    def _movel(self, coords: List[float], r: int, label: str = "") -> bool:
+    def _movel(self, coords: List[float], radius: int, label: str = "") -> bool:
         """직선(Cartesian) 이동. 비상정지 시 False 반환."""
         if not self._ok():
             return False
         try:
-            self.rc.movel(coords, r)
+            self.rc.movel(coords, radius)
         except Exception as e:
             print(f"[{self.name}] _movel 오류: {e}")
             return False
@@ -97,12 +97,12 @@ class BaseStage(ABC):
             self._tick(label)
         return self._ok()
 
-    def _amovel(self, coords: List[float], r, label: str = "") -> bool:
+    def _amovel(self, coords: List[float], radius: int, label: str = "") -> bool:
         """태스크 비동기 이동 (amovel + mwait). 비상정지 시 False 반환"""
         if not self._ok():
             return False
         try:
-            self.rc.amovel(coords, r)
+            self.rc.amovel(coords, radius)
         except Exception as e:
             print(f"[{self.name}] _amovel 오류: {e}")
             return False
@@ -116,6 +116,10 @@ class BaseStage(ABC):
         """그리퍼 폭 설정 (5 / 20 / 30 / 50 / 100 mm)."""
         self.rc.set_gripper(width_mm)
 
+    def _check_grip(self):
+        """그리퍼 물체 잡기 성공 여부 확인. OUT 1=0, 2=1, 3=0"""
+        return self.rc.check_grip()
+        
     # ── 진행 로그 ─────────────────────────────────────────────────
     def _tick(self, label: str, done: bool = False):
         self.sm.tick(label)
