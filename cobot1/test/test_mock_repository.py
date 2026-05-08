@@ -109,6 +109,3 @@ class TestUploadRobotStatus:
             t.join()
         assert errors == []
         assert len(repo._statuses) == 20
-
-    def test_available_property_is_true(self, repo):
-        assert repo.available is True

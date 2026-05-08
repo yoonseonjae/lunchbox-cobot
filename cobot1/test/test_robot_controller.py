@@ -117,44 +117,44 @@ class TestHandleCommandResume:
 
 # ── _handle_command: move_home ───────────────────────────────────────────────
 class TestHandleCommandMoveHome:
-    def test_do_movej_called_with_home_coords(self, ctrl, rc, cm):
+    def test_move_home_enqueued_to_cmd_queue(self, ctrl):
+        """move_home 은 Rule 7에 따라 cmd_queue 에 삽입."""
+        ctrl._handle_command("move_home")
+        assert not ctrl._cmd_queue.empty()
+        assert ctrl._cmd_queue.get_nowait() == "move_home"
+
+    def test_move_home_does_not_call_movej_directly(self, ctrl, rc):
+        """move_home 은 작업 스레드에 위임하므로 직접 do_movej 호출 없음."""
         rc.do_movej = MagicMock()
         ctrl._handle_command("move_home")
-        rc.do_movej.assert_called_once_with(cm.home_joint.return_value)
+        rc.do_movej.assert_not_called()
 
-    def test_state_returns_to_idle_after_move_home(self, ctrl, sm, rc):
-        rc.do_movej = MagicMock()
+    def test_state_not_changed_by_handle_command(self, ctrl, sm):
+        """_handle_command 에서는 상태 변경 없음 (작업 스레드가 처리)."""
         ctrl._handle_command("move_home")
-        assert sm.status.state == RobotState.IDLE
-
-    def test_state_moving_during_command(self, ctrl, sm, rc):
-        """do_movej 호출 직전에 MOVING 상태여야 함."""
-        states_observed = []
-
-        def capture_movej(coords):
-            states_observed.append(sm.status.state)
-
-        rc.do_movej = capture_movej
-        ctrl._handle_command("move_home")
-        assert RobotState.MOVING in states_observed
+        assert sm.status.state.value == "idle"
 
 
 # ── _handle_command: gripper ─────────────────────────────────────────────────
 class TestHandleCommandGripper:
-    def test_gripper_open_sets_50mm(self, ctrl, rc):
+    def test_gripper_open_enqueued(self, ctrl):
+        """gripper_open 은 Rule 7에 따라 cmd_queue 에 삽입."""
+        ctrl._handle_command("gripper_open")
+        assert ctrl._cmd_queue.get_nowait() == "gripper_open"
+
+    def test_gripper_close_enqueued(self, ctrl):
+        ctrl._handle_command("gripper_close")
+        assert ctrl._cmd_queue.get_nowait() == "gripper_close"
+
+    def test_gripper_full_open_enqueued(self, ctrl):
+        ctrl._handle_command("gripper_full_open")
+        assert ctrl._cmd_queue.get_nowait() == "gripper_full_open"
+
+    def test_gripper_does_not_call_set_gripper_directly(self, ctrl, rc):
+        """gripper 명령은 직접 set_gripper 를 호출하지 않음."""
         rc.set_gripper = MagicMock()
         ctrl._handle_command("gripper_open")
-        rc.set_gripper.assert_called_once_with(50)
-
-    def test_gripper_close_sets_5mm(self, ctrl, rc):
-        rc.set_gripper = MagicMock()
-        ctrl._handle_command("gripper_close")
-        rc.set_gripper.assert_called_once_with(5)
-
-    def test_gripper_full_open_sets_100mm(self, ctrl, rc):
-        rc.set_gripper = MagicMock()
-        ctrl._handle_command("gripper_full_open")
-        rc.set_gripper.assert_called_once_with(100)
+        rc.set_gripper.assert_not_called()
 
     def test_unknown_command_no_exception(self, ctrl):
         """알 수 없는 명령은 조용히 무시."""
