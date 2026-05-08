@@ -29,7 +29,7 @@ except ImportError:
 
 
 VALID_COMMANDS = {
-    "emergency_stop", "resume",
+    "emergency_stop", "resume", "pause", "reset_and_restart", # 🚨 pause, reset_and_restart 추가
     "move_home",
     "gripper_open", "gripper_close", "gripper_full_open",
 }

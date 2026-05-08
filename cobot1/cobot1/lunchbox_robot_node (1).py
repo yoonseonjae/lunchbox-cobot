@@ -55,7 +55,7 @@ ON,  OFF = 1, 0
 
 # Firebase
 SERVICE_ACCOUNT_KEY_PATH = os.path.expanduser(
-    "~/cobot_ws/src/cobot1/config/serviceAccountKey.json"
+    "~/cobot_ws/cobot1/config/serviceAccountKey.json"
 )
 DATABASE_URL = "https://rokey-d3991-b04b6-default-rtdb.asia-southeast1.firebasedatabase.app"
 

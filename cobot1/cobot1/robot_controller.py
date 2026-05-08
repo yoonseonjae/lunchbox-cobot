@@ -1,16 +1,7 @@
 #!/usr/bin/env python3
 """
 ==============================================================================
-[Phase 5] 나만의 도련님 도시락 - 로봇 컨트롤러 (스레드 통합)
-==============================================================================
-RobotStateManager / RobotClient / OrderRepository / Stage 들을 조합.
-스레드 라이프사이클을 명확히 관리.
-
-스레드 구조:
-  ┌─ ros_spin_thread      : ROS2 executor.spin()
-  ├─ task_thread          : 주문 큐 소비 + 5 Stage 실행  (DSR API 호출)
-  ├─ status_upload_thread : 1초마다 Firebase 상태 업로드
-  └─ collision_monitor    : 0.5초마다 로봇 상태 감시
+[Phase 5] 나만의 도련님 도시락 - 로봇 컨트롤러 (최종 통합본)
 ==============================================================================
 """
 
@@ -26,7 +17,7 @@ import rclpy
 from rclpy.executors import MultiThreadedExecutor
 from std_msgs.msg import String
 
-# 🚨 [추가됨] rqt 하드웨어 자동 복구 서비스
+# 🚨 rqt 하드웨어 자동 복구 서비스
 from dsr_msgs2.srv import SetRobotControl
 
 from .state_manager     import RobotStateManager, RobotState
@@ -45,7 +36,7 @@ from .stages import (
 # ── 상수 ──────────────────────────────────────────────────────────────────
 STATUS_UPLOAD_INTERVAL_SEC:     float = 1.0
 STATUS_ERROR_RETRY_SEC:         float = 5.0
-COLLISION_MONITOR_INTERVAL_SEC: float = 0.3   # 충돌 감시 주기 (조금 더 빠르게)
+COLLISION_MONITOR_INTERVAL_SEC: float = 0.3   
 TASK_ERROR_RETRY_SEC:           float = 1.0
 ROS_EXECUTOR_THREADS:           int   = 4
 COLLISION_STATES                      = {3, 5, 6, 7}
@@ -73,8 +64,7 @@ class RobotController:
         self._init_event   = threading.Event()
         self._init_ok:     bool         = False
 
-        # 🚨 [추가됨] 일시정지, 주문 복구, 복구 클라이언트
-        self.last_failed_order = None
+        # 🚨 [수정] 일시정지 상태 및 복구 클라이언트 초기화
         self.last_failed_order = None
         self.recover_client = self.node.create_client(SetRobotControl, '/dsr01/system/set_robot_control')
 
@@ -148,16 +138,15 @@ class RobotController:
             self.rc.do_stop()
             self.sm.trigger_emergency_stop()
 
-        # 🚨 [추가됨] 일시정지 및 자동 복구 로직
         elif cmd_type == "pause":
             self.node.get_logger().info("⏸️ 시스템 일시 정지")
-            self.sm.set_pause() # 🚨 변경됨
+            self.sm.set_pause() 
             self.rc.do_stop()
             self.sm.update_status(state=RobotState.IDLE, current_task="⏸️ 일시 정지됨")
 
         elif cmd_type == "resume":
             self.node.get_logger().info("▶️ 작업 재개")
-            self.sm.clear_pause() # 🚨 변경됨
+            self.sm.clear_pause() 
             if self.sm.is_stopped():
                 self.sm.clear_emergency_stop()
             self.sm.update_status(state=RobotState.MOVING, current_task="작업 재개 중...")
@@ -172,7 +161,7 @@ class RobotController:
                 time.sleep(1.0)
             
             self.sm.clear_emergency_stop()
-            self.is_paused = False
+            self.sm.clear_pause()
             
             if self.last_failed_order:
                 self.node.get_logger().info(f"🚀 재시작할 주문 큐에 삽입: {self.last_failed_order.key}")
@@ -199,14 +188,14 @@ class RobotController:
             if order.run_mode == "only": return stage_num == order.target_stage
             return stage_num >= order.target_stage
 
-        # 🚨 [추가됨] 실행 전 정지 검사 함수
         def check_stop():
             if self.sm.is_stopped():
                 raise InterruptedError("외력 감지로 인한 강제 취소")
-            while getattr(self, 'is_paused', False):
-                time.sleep(0.5)
+            # StateManager의 이벤트를 통해 대기
+            self.sm.wait_if_paused()
 
         try:
+            # ── Stage 1 : 식판 세팅 ──────────────────────────────
             if should_run(1):
                 check_stop()
                 result = TraySetupStage(self.sm, self.rc, self.cm).execute()
@@ -215,26 +204,22 @@ class RobotController:
             else:
                 self.sm.add_step_log("⏭️ [1/5] 식판 세팅 건너뜀", completed=True)
 
+            # ── Stage 2 : 서브 반찬 ──────────────────────────────
             if should_run(2):
+                # 🚨 [수정] idx를 사용하여 slot_index 파라미터 전달
                 for idx, dish in enumerate(valid_subs):
-<<<<<<< HEAD
                     check_stop()
                     self.sm.update_status(current_task=f"🥗 [2/5] 서브 {idx+1}/{n_sub} - [{dish}]")
-                    result = SubDishStage(self.sm, self.rc, self.cm, dish).execute()
+                    
+                    # slot_index=idx 추가하여 호출
+                    result = SubDishStage(self.sm, self.rc, self.cm, dish, slot_index=idx).execute()
+                    
                     if result == StageResult.STOPPED: check_stop()
                     if result != StageResult.SUCCESS: raise RuntimeError(f"Stage2 실패: {dish} {result}")
-=======
-                    self.sm.update_status(
-                        current_task=f"🥗 [2/5] 서브 {idx+1}/{n_sub} - [{dish}]"
-                    )
-
-                    result = SubDishStage(self.sm, self.rc, self.cm, dish, slot_index=idx).execute()
-                    if result != StageResult.SUCCESS:
-                        raise RuntimeError(f"Stage2 실패: {dish} {result}")
->>>>>>> origin/hb_develop
             else:
                 self.sm.add_step_log("⏭️ [2/5] 서브 반찬 건너뜀", completed=True)
 
+            # ── Stage 3 : 메인 반찬 ──────────────────────────────
             if should_run(3):
                 check_stop()
                 result = MainDishStage(self.sm, self.rc, self.cm, order.main_dish).execute()
@@ -243,6 +228,7 @@ class RobotController:
             else:
                 self.sm.add_step_log("⏭️ [3/5] 메인 반찬 건너뜀", completed=True)
 
+            # ── Stage 4 : 밥 담기 ───────────────────────────────
             if should_run(4):
                 check_stop()
                 result = RiceStage(self.sm, self.rc, self.cm).execute()
@@ -251,6 +237,7 @@ class RobotController:
             else:
                 self.sm.add_step_log("⏭️ [4/5] 밥 담기 건너뜀", completed=True)
 
+            # ── Stage 5 : 식판 배달 ──────────────────────────────
             if should_run(5):
                 check_stop()
                 result = DeliveryStage(self.sm, self.rc, self.cm).execute()
@@ -264,7 +251,6 @@ class RobotController:
             self.repo.mark_completed(key)
             self.node.get_logger().info(f"✅ 주문 완료: {key}")
 
-        # 🚨 [추가됨] 예외 시 실패 주문 저장
         except InterruptedError:
             self.node.get_logger().warn(f"🛑 충돌로 인해 주문 취소됨. 임시 저장합니다.")
             self.sm.add_step_log("🛑 외력 감지/일시정지로 주문이 중단되었습니다.")
@@ -338,7 +324,6 @@ class RobotController:
             try:
                 payload = self.sm.get_status_dict()
                 
-                # 🚨 변경됨: sm.is_paused() 사용
                 if self.sm.is_paused():
                     payload['state'] = 'paused'
                 elif self.sm.is_stopped():
@@ -353,9 +338,9 @@ class RobotController:
 
     def _collision_monitor_loop(self) -> None:
         _in_collision = False
-        COLLISION_THRESHOLD = 20.0
-        FORCE_THRESHOLD     = 20.0
-        FORCE_Z_THRESHOLD   = 15.0
+        COLLISION_THRESHOLD = 80.0
+        FORCE_THRESHOLD     = 80.0
+        FORCE_Z_THRESHOLD   = 60.0
 
         while rclpy.ok() and self._running.is_set():
             try:
@@ -364,7 +349,6 @@ class RobotController:
                 soft_collision = False
                 collision_reason = ""
 
-                # 🚨 [추가됨] 능동형 외력 감지 (get_tool_force 방어코드 포함)
                 if not hard_collision and not _in_collision:
                     force = getattr(self.rc, 'get_tool_force', lambda: [])()
                     if force and len(force) >= 3:
@@ -400,7 +384,6 @@ class RobotController:
                     time.sleep(3.0)
                     self.node.get_logger().info("🏠 홈(Home) 자세로 대피를 시작합니다.")
 
-                    # 대피 전 안전을 위해 제어기 에러 리셋 시도
                     if hard_collision and self.recover_client.wait_for_service(timeout_sec=0.5):
                         req = SetRobotControl.Request()
                         req.robot_control = 2
@@ -413,6 +396,6 @@ class RobotController:
                     self.node.get_logger().info("✅ 로봇 STANDBY 복귀")
                     _in_collision = False
 
-            except Exception as e:
+            except Exception:
                 pass
             time.sleep(COLLISION_MONITOR_INTERVAL_SEC)

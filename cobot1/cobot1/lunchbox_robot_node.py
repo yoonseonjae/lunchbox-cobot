@@ -29,7 +29,7 @@ ROBOT_MODEL = "m0609"
 DR_init.__dsr__id    = ROBOT_ID
 DR_init.__dsr__model = ROBOT_MODEL
 
-SERVICE_ACCOUNT_KEY = os.path.expanduser("~/cobot_ws/src/cobot1/config/serviceAccountKey.json")
+SERVICE_ACCOUNT_KEY = os.path.expanduser("~/cobot_ws/cobot1/config/serviceAccountKey.json")
 DATABASE_URL = "https://rokey-d3991-default-rtdb.asia-southeast1.firebasedatabase.app"
 
 def main(args=None) -> None:

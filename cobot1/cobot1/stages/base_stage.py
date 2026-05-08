@@ -1,17 +1,14 @@
 #!/usr/bin/env python3
 """
 ==============================================================================
-[Phase 3] 나만의 도련님 도시락 - 스테이지 기본 클래스
-==============================================================================
-모든 스테이지(TraySetup / SubDish / MainDish / Rice / Delivery)의
-공통 인터페이스와 헬퍼 메서드를 정의.
+[Phase 3] 나만의 도련님 도시락 - 스테이지 기본 클래스 (API 안정화 버전)
 ==============================================================================
 """
 
 import time
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import List
+from typing import List, Optional
 
 from rclpy.logging import get_logger
 
@@ -35,37 +32,43 @@ class BaseStage(ABC):
     def _ok(self) -> bool:
         return not self.sm.is_stopped()
 
-    # 🚨 [수정됨] 이동 중 일시정지가 걸리면 에러를 무시하고 대기 후 재이동
-    def _movej(self, coords: List[float], label: str = "") -> bool:
+    # ── 🛡️ API 간섭 방지 및 자동 재시도 로직 적용 ──────────────────
+
+    def _movej(self, coords: List[float], label: str = "", radius: Optional[float] = None) -> bool:
         if not self._ok(): return False
         while True:
-            self.sm.wait_if_paused() # 일시정지면 여기서 멈춤
+            self.sm.wait_if_paused() 
             if not self._ok(): return False
             try:
-                self.rc.do_movej(coords)
-                break # 무사히 도착하면 루프 탈출
+                time.sleep(0.05) # 🚨 API 냉각 시간
+                self.rc.do_movej(coords, radius=radius)
+                break 
             except Exception as e:
+                if "generator already executing" in str(e):
+                    time.sleep(0.5) # 🚨 에러 시 잠시 대기 후 루프 재실행(재시도)
+                    continue
                 if self.sm.is_paused():
-                    self._logger.warn("⏸️ 이동 중 일시정지됨. 대기합니다...")
                     self.sm.wait_if_paused()
-                    self._logger.info("▶️ 재개됨. 남은 궤적을 다시 이동합니다.")
-                    continue # 루프를 다시 돌아 movej 재실행
+                    continue 
                 self._logger.error(f"_movej 오류: {e}")
                 return False
         if label: self._tick(label)
         return self._ok()
 
-    def _movel(self, coords: List[float], label: str = "") -> bool:
+    def _movel(self, coords: List[float], label: str = "", radius: Optional[float] = None) -> bool:
         if not self._ok(): return False
         while True:
             self.sm.wait_if_paused()
             if not self._ok(): return False
             try:
-                self.rc.do_movel(coords)
+                time.sleep(0.05)
+                self.rc.do_movel(coords, radius=radius)
                 break
             except Exception as e:
+                if "generator already executing" in str(e):
+                    time.sleep(0.5)
+                    continue
                 if self.sm.is_paused():
-                    self._logger.warn("⏸️ 이동 중 일시정지됨. 대기합니다...")
                     self.sm.wait_if_paused()
                     continue
                 self._logger.error(f"_movel 오류: {e}")
@@ -73,24 +76,23 @@ class BaseStage(ABC):
         if label: self._tick(label)
         return self._ok()
     
-    def _amovej(self, coords: List[float], label: str = "") -> bool:
+    def _amovej(self, coords: List[float], label: str = "", radius: Optional[float] = None) -> bool:
         if not self._ok(): return False
         while True:
             self.sm.wait_if_paused()
             if not self._ok(): return False
             try:
-                self.rc.do_amovej(coords)
-                if not self.rc.wait_motion_done():
-                    return False
-                
-                # 비동기 이동 완료 후 일시정지 상태인지 확인
+                time.sleep(0.05)
+                self.rc.do_amovej(coords, radius=radius)
+                if not self.rc.wait_motion_done(): return False
                 if self.sm.is_paused():
-                    self._logger.warn("⏸️ 비동기 이동 중 정지됨. 대기합니다...")
                     self.sm.wait_if_paused()
-                    continue # 못 간 만큼 다시 이동
-
+                    continue 
                 break
             except Exception as e:
+                if "generator already executing" in str(e):
+                    time.sleep(0.5)
+                    continue
                 if self.sm.is_paused():
                     self.sm.wait_if_paused()
                     continue
@@ -99,21 +101,23 @@ class BaseStage(ABC):
         if label: self._tick(label)
         return self._ok()
     
-    def _amovel(self, coords: List[float], label: str = "") -> bool:
+    def _amovel(self, coords: List[float], label: str = "", radius: Optional[float] = None) -> bool:
         if not self._ok(): return False
         while True:
             self.sm.wait_if_paused()
             if not self._ok(): return False
             try:
-                self.rc.do_amovel(coords)
-                if not self.rc.wait_motion_done():
-                    return False
-                
+                time.sleep(0.05) # 🚨 API 간섭 방지
+                self.rc.do_amovel(coords, radius=radius)
+                if not self.rc.wait_motion_done(): return False
                 if self.sm.is_paused():
                     self.sm.wait_if_paused()
                     continue
                 break
             except Exception as e:
+                if "generator already executing" in str(e):
+                    time.sleep(0.5) # 🚨 에러 시 자동 재시도
+                    continue
                 if self.sm.is_paused():
                     self.sm.wait_if_paused()
                     continue
@@ -122,37 +126,13 @@ class BaseStage(ABC):
         if label: self._tick(label)
         return self._ok()
 
-<<<<<<< HEAD
-=======
-    def _amovel(self, coords: List[float], radius: int = None, label: str = "") -> bool:
-        """태스크 비동기 이동 (amovel + mwait). 비상정지 시 False 반환"""
-        if not self._ok():
-            return False
-        try:
-            self.rc.amovel(coords, radius)
-        except Exception as e:
-            print(f"[{self.name}] _amovel 오류: {e}")
-            return False
-        if label:
-            self._tick(label)
-        return self._ok()
-
-
-    # ── 그리퍼 헬퍼 ──────────────────────────────────────────────
->>>>>>> origin/hb_develop
     def _gripper(self, width_mm: int) -> None:
-        self.sm.wait_if_paused() # 그리퍼 닫기 전에도 일시정지 검사
+        self.sm.wait_if_paused() 
         self.rc.set_gripper(width_mm)
 
-<<<<<<< HEAD
-    def _tick(self, label: str, done: bool = False) -> None:
-=======
-    def _check_grip(self):
-        """그리퍼 물체 잡기 성공 여부 확인. OUT 1=0, 2=1, 3=0"""
+    def _check_grip(self) -> bool:
         return self.rc.check_grip()
         
-    # ── 진행 로그 ─────────────────────────────────────────────────
-    def _tick(self, label: str, done: bool = False):
->>>>>>> origin/hb_develop
+    def _tick(self, label: str, done: bool = False) -> None:
         self.sm.tick(label)
         self.sm.add_step_log(label, completed=done)

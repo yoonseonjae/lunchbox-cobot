@@ -30,7 +30,7 @@ class FirebaseBridgeNode(Node):
         
         # 2. Firebase 초기화 (새 프로젝트 인증키 적용 완료)
         key_path = os.path.expanduser(
-          "~/cobot_ws/src/cobot1/config/serviceAccountKey.json"
+          "~/cobot_ws/cobot1/config/serviceAccountKey.json"
         )
         
         try:

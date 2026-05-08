@@ -154,23 +154,23 @@ Firebase 콜백 스레드에서 `_handle_command("gripper_open")`이 호출될 �
 ```bash
 # 전체 테스트 실행
 cd ~/cobot_ws
-python3 -m pytest src/cobot1/test/ -v
+python3 -m pytest cobot1/test/ -v
 
 # 특정 파일만
-python3 -m pytest src/cobot1/test/test_robot_client.py -v
+python3 -m pytest cobot1/test/test_robot_client.py -v
 
 # 특정 테스트만
-python3 -m pytest src/cobot1/test/test_robot_controller.py::TestHandleCommandEmergencyStop -v
+python3 -m pytest cobot1/test/test_robot_controller.py::TestHandleCommandEmergencyStop -v
 
 # 빠른 실패 확인 (첫 번째 실패 시 중단)
-python3 -m pytest src/cobot1/test/ -v -x
+python3 -m pytest cobot1/test/ -v -x
 ```
 
 ---
 
 ## 5. 최종 테스트 결과
 
-**실행 명령**: `python3 -m pytest src/cobot1/test/ -v`  
+**실행 명령**: `python3 -m pytest cobot1/test/ -v`  
 **환경**: Python 3.10.12 / pytest-9.0.3 / ROS2 Humble
 
 ```

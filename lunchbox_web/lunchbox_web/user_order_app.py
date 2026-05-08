@@ -28,7 +28,7 @@ from firebase_admin import credentials, db
 # ============================================================================
 # Firebase 설정 (본인 환경에 맞게 수정)
 # ============================================================================
-SERVICE_ACCOUNT_KEY_PATH = "/home/yoon/cobot_ws/src/cobot1/config/serviceAccountKey.json"
+SERVICE_ACCOUNT_KEY_PATH = "/home/yoon/cobot_ws/cobot1/config/serviceAccountKey.json"
 DATABASE_URL = "https://rokey-d3991-default-rtdb.asia-southeast1.firebasedatabase.app"
 
 # ============================================================================

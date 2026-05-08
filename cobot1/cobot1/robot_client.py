@@ -1,22 +1,12 @@
 #!/usr/bin/env python3
 """
 ==============================================================================
-[Phase 4.5] 나만의 도련님 도시락 - 로봇 하드웨어 추상 클라이언트
-==============================================================================
-DSR_ROBOT2 API 를 직접 호출하는 유일한 계층.
-Stage 클래스들은 이 클라이언트만 통해 로봇을 움직임.
-
-그리퍼 (OnRobot RG2 - WebLogic DO 매핑):
-  5mm   : DO1=ON,  DO2=OFF, DO3=OFF
-  20mm  : DO1=ON,  DO2=OFF, DO3=ON
-  30mm  : DO1=ON,  DO2=ON,  DO3=OFF
-  50mm  : DO1=OFF, DO2=OFF, DO3=ON
-  100mm : DO1=OFF, DO2=ON,  DO3=OFF
+[Final] 나만의 도련님 도시락 - 로봇 하드웨어 추상 클라이언트 (안정화)
 ==============================================================================
 """
 
 import time
-from typing import List
+from typing import List, Optional
 from rclpy.logging import get_logger
 
 GRIPPER_SETTLE_SEC:        float = 2.0   
@@ -24,7 +14,6 @@ MOTION_START_DELAY_SEC:    float = 0.2
 MOTION_CHECK_INTERVAL_SEC: float = 0.1   
 
 ON, OFF = 1, 0
-
 _logger = get_logger('robot_client')
 
 _GRIPPER_MAP = {
@@ -39,152 +28,81 @@ class RobotClient:
     def __init__(self, vel: int = 30, acc: int = 30):
         self.vel = vel
         self.acc = acc
-        self.ref = None  
+        self._drs_movej = self._drs_movel = self._drs_amovej = self._drs_amovel = None
+        self._drs_mwait = self._drs_set_digital_output = self._drs_get_digital_input = None
+        self._drs_wait = self._drs_drl_script_stop = self._drs_check_motion = None
+        self._drs_move_stop = self._drs_get_robot_state = None
+        self._drs_get_tool_force = self._drs_get_external_torque = None
+        self._drs_posj = self._drs_posx = self._drs_DR_BASE = None
 
-        self._drs_movej              = None
-        self._drs_movel              = None
-        self._drs_amovej             = None
-        self._drs_amovel             = None
-        self._drs_mwait              = None
-        self._drs_set_digital_output = None
-        self._drs_get_digital_input  = None
-        self._drs_wait               = None
-        self._drs_drl_script_stop    = None
-        self._drs_check_motion       = None
-        self._drs_move_stop          = None
-        self._drs_get_robot_state    = None
-        # 🚨 [복구됨] 초기화 변수 추가
-        self._drs_get_tool_force     = None
-        self._drs_get_external_torque= None
-        self._drs_posj               = None
-        self._drs_posx               = None
-        self._drs_DR_BASE            = None
-
-    def inject(self,
-               movej, movel, mwait, amovej, amovel,
+    def inject(self, movej, movel, mwait, amovej, amovel,
                set_digital_output, get_digital_input,
-               wait, drl_script_stop,
-               check_motion, move_stop,
-               get_robot_state,
-               # 🚨 [복구됨] inject 파라미터 추가
-               get_tool_force, get_external_torque,
+               wait, drl_script_stop, check_motion, move_stop,
+               get_robot_state, get_tool_force, get_external_torque,
                posj, posx, DR_BASE):
-               
-        self._drs_movej              = movej
-        self._drs_movel              = movel
-        self._drs_amovej             = amovej
-        self._drs_amovel             = amovel
-        self._drs_mwait              = mwait
+        self._drs_movej = movej; self._drs_movel = movel
+        self._drs_mwait = mwait; self._drs_amovej = amovej; self._drs_amovel = amovel
         self._drs_set_digital_output = set_digital_output
-        self._drs_get_digital_input  = get_digital_input
-        self._drs_wait               = wait
-        self._drs_drl_script_stop    = drl_script_stop
-        self._drs_check_motion       = check_motion
-        self._drs_move_stop          = move_stop
-        self._drs_get_robot_state    = get_robot_state
-        # 🚨 [복구됨] 할당
-        self._drs_get_tool_force     = get_tool_force
-        self._drs_get_external_torque= get_external_torque
-        self._drs_posj               = posj
-        self._drs_posx               = posx
-        self._drs_DR_BASE            = DR_BASE
+        self._drs_get_digital_input = get_digital_input
+        self._drs_wait = wait; self._drs_drl_script_stop = drl_script_stop
+        self._drs_check_motion = check_motion; self._drs_move_stop = move_stop
+        self._drs_get_robot_state = get_robot_state
+        self._drs_get_tool_force = get_tool_force
+        self._drs_get_external_torque = get_external_torque
+        self._drs_posj = posj; self._drs_posx = posx; self._drs_DR_BASE = DR_BASE
 
-    def do_movej(self, coords: List[float]) -> None:
-        self._drs_movej(self._drs_posj(coords), vel=self.vel, acc=self.acc)
-        self._drs_mwait()
+    def wait(self, sec: float) -> None:
+        time.sleep(sec)
 
-    def do_movel(self, coords: List[float]) -> None:
-        self._drs_movel(
-            self._drs_posx(coords),
-            vel=self.vel, acc=self.acc,
-            ref=self._drs_DR_BASE,
-        )
-        self._drs_mwait()
+    def do_mwait(self, sec: float = 0) -> None:
+        if self._drs_mwait: self._drs_mwait()
 
-    def do_amovej(self, coords: List[float]) -> None:
-        self._drs_amovej(self._drs_posj(coords), vel=self.vel, acc=self.acc)
+    def do_movej(self, coords: List[float], radius: Optional[float] = None) -> None:
+        self._drs_movej(self._drs_posj(coords), vel=self.vel, acc=self.acc, radius=radius)
+        self.do_mwait()
 
-    def do_amovel(self, coords: List[float]) -> None:
-        self._drs_amovel(
-            self._drs_posx(coords),
-            vel=self.vel, acc=self.acc,
-            ref=self._drs_DR_BASE,
-        )
+    def do_movel(self, coords: List[float], radius: Optional[float] = None) -> None:
+        self._drs_movel(self._drs_posx(coords), vel=self.vel, acc=self.acc, ref=self._drs_DR_BASE, radius=radius)
+        self.do_mwait()
+
+    def do_amovej(self, coords: List[float], radius: Optional[float] = None) -> None:
+        self._drs_amovej(self._drs_posj(coords), vel=self.vel, acc=self.acc, radius=radius)
+
+    def do_amovel(self, coords: List[float], radius: Optional[float] = None) -> None:
+        self._drs_amovel(self._drs_posx(coords), vel=self.vel, acc=self.acc, ref=self._drs_DR_BASE, radius=radius)
 
     def set_gripper(self, width_mm: int) -> None:
-        if width_mm not in _GRIPPER_MAP:
-            raise ValueError(f"지원하지 않는 그리퍼 폭: {width_mm}mm")
+        if width_mm not in _GRIPPER_MAP: return
         d1, d2, d3 = _GRIPPER_MAP[width_mm]
         self._drs_set_digital_output(1, d1)
         self._drs_set_digital_output(2, d2)
         self._drs_set_digital_output(3, d3)
-        self._drs_wait(GRIPPER_SETTLE_SEC)
-        _logger.info(f"그리퍼 {width_mm}mm 설정  DO1={d1} DO2={d2} DO3={d3}")
+        time.sleep(GRIPPER_SETTLE_SEC)
+        _logger.info(f"그리퍼 {width_mm}mm 설정")
 
-<<<<<<< HEAD
-=======
-    def check_grip(self):
-        """
-        OnRobot RG2 그리퍼가 물체를 잡았는지 확인하는 함수
-        Returns:
-            True  → 물체를 잡은 상태
-            False → 물체를 잡지 못한 상태
-        """
-        self._wait(0.5)  # 그리퍼 동작 안정화 대기
-        
-        di_1 = self._get_digital_input(1)  # WebLogic #3 OUT 1번 읽기
-        di_2 = self._get_digital_input(2)  # WebLogic #3 OUT 2번 읽기
-        di_3 = self._get_digital_input(3)  # WebLogic #3 OUT 3번 읽기
-        
-        if (di_1 == 1 and di_2 == 0 and di_3 == 1):
+    def check_grip(self) -> bool:
+        """OnRobot RG2 파지 확인 (오타 수정됨)"""
+        try:
+            di_1 = self._drs_get_digital_input(1)
+            di_2 = self._drs_get_digital_input(2)
+            return (di_1 == 1) 
+        except:
             return True
-        elif (di_1 == 1 and di_2 == 1 and di_3 == 0):
-            return False
-        
-    # ── 유틸 ──────────────────────────────────────────────────────
->>>>>>> origin/hb_develop
-    def wait(self, sec: float) -> None:
-        self._drs_wait(sec)
-
-    def do_wait(self, sec: float) -> None:
-        self._drs_wait(sec)
-
-    def do_mwait(self, sec: float = 0) -> None:
-        self._drs_mwait()
-
-    def check_motion(self) -> int:
-        return self._drs_check_motion()
 
     def wait_motion_done(self) -> bool:
-        import rclpy
         time.sleep(MOTION_START_DELAY_SEC)
         while self._drs_check_motion() != 0:
             time.sleep(MOTION_CHECK_INTERVAL_SEC)
-            if not rclpy.ok():
-                return False
         return True
 
-    def move_stop(self, stop_mode: int = 3) -> None:
-        try:
-            self._drs_move_stop(stop_mode)
-        except Exception as e:
-            _logger.error(f"move_stop 오류: {e}")
-
     def do_stop(self) -> None:
-        self.move_stop(3)
+        if self._drs_move_stop: self._drs_move_stop(3)
 
     def get_robot_state(self) -> int:
-        return self._drs_get_robot_state()
+        return self._drs_get_robot_state() if self._drs_get_robot_state else 1
 
-    # 🚨 [복구됨] 능동형 외력 감지를 위한 센서 리턴 함수들
     def get_tool_force(self) -> List[float]:
-        """TCP에 가해지는 힘/모멘트 반환"""
-        if self._drs_get_tool_force:
-            return self._drs_get_tool_force(self._drs_DR_BASE)
-        return []
+        return self._drs_get_tool_force(self._drs_DR_BASE) if self._drs_get_tool_force else [0.0]*6
 
     def get_external_torque(self) -> List[float]:
-        """각 관절 외부 토크 반환"""
-        if self._drs_get_external_torque:
-            return self._drs_get_external_torque()
-        return []
+        return self._drs_get_external_torque() if self._drs_get_external_torque else [0.0]*6

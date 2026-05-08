@@ -92,4 +92,4 @@ class CoordinateManager:
     
     def available_sub_dishes(self) -> List[str]:
         """설정 파일에 등록된 서브 반찬 이름 목록."""
-        return list(self._cfg["coordinates"]["stage_2"].keys())
+        return list(self._cfg["coordinates"]["stage_2_picks"].keys())
