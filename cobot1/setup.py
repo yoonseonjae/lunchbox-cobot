@@ -18,7 +18,7 @@ setup(
             glob('launch/*.launch.py')),
         # 좌표 YAML 설정 파일
         (os.path.join('share', package_name, 'config'),
-            glob(package_name + '/config/*.yaml')),
+            glob(package_name + '/cobot1/config/*.yaml')),
         # Firebase 키 (gitignore 필수)
         (os.path.join('share', package_name, 'config'),
             glob('config/*.json')),

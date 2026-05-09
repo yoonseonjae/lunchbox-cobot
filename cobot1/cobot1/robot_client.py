@@ -25,7 +25,7 @@ _GRIPPER_MAP = {
 }
 
 class RobotClient:
-    def __init__(self, vel: int = 30, acc: int = 30):
+    def __init__(self, vel: int = 50, acc: int = 50):
         self.vel = vel
         self.acc = acc
         self._drs_movej = self._drs_movel = self._drs_amovej = self._drs_amovel = None

@@ -112,24 +112,33 @@
             background: #f85149;
         }
 
-        /* ===== 메인 그리드 ===== */
+        /* ===== 메인 그리드 (비율 고정) ===== */
         .container {
             padding: 6px 10px;
             display: grid;
             grid-template-columns: 1fr 1fr 1fr 1fr;
-            grid-template-rows: 72px auto minmax(0, 1fr);
+            /* 1행: KPI (72px)
+               2행: 주문/로봇상태/진행률 (1fr)
+               3행: CCTV/URDF (1.2fr - 영상 영역을 살짝 더 크게)
+               4행: 메뉴설정 (데이터만큼)
+               5행: RawDB (데이터만큼) */
+            grid-template-rows: 72px minmax(0, 1fr) minmax(0, 1.2fr) max-content max-content;
             gap: 6px;
             flex: 1;
             min-height: 0;
             overflow: hidden;
         }
 
+        /* ===== 카드 공통 (찌그러짐 방지 및 내부 스크롤) ===== */
         .card {
             background: #161b22;
             border: 1px solid #30363d;
             border-radius: 6px;
             padding: 8px 10px;
+            display: flex;
+            flex-direction: column;
             min-height: 0;
+            /* flex 자식이 부모를 넘지 않게 함 */
             overflow: hidden;
         }
 
@@ -142,6 +151,29 @@
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            flex-shrink: 0;
+            /* 제목은 축소되지 않게 */
+        }
+
+        /* 공통 내부 스크롤 영역 */
+        .scroll-area {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+        }
+
+        /* 스크롤바 디자인 */
+        .scroll-area::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .scroll-area::-webkit-scrollbar-thumb {
+            background: #30363d;
+            border-radius: 3px;
+        }
+
+        .scroll-area::-webkit-scrollbar-track {
+            background: transparent;
         }
 
         /* ===== KPI 카드 ===== */
@@ -171,7 +203,6 @@
         /* ===== 주문 큐 ===== */
         .order-queue {
             grid-column: span 1;
-            overflow: hidden;
         }
 
         table {
@@ -184,6 +215,9 @@
         td {
             text-align: left;
             padding: 3px 4px;
+        }
+
+        td {
             border-bottom: 1px solid #21262d;
         }
 
@@ -191,6 +225,12 @@
             color: #8b949e;
             font-weight: normal;
             font-size: 0.75em;
+            /* 🚨 스크롤 시 헤더 고정 */
+            position: sticky;
+            top: 0;
+            background: #161b22;
+            z-index: 10;
+            box-shadow: 0 1px 0 #30363d;
         }
 
         .status-pill {
@@ -243,7 +283,6 @@
         /* ===== 로봇 상태 ===== */
         .robot-status {
             grid-column: span 1;
-            overflow: hidden;
         }
 
         .info-row {
@@ -380,12 +419,9 @@
             border-color: #d29922;
         }
 
-        /* ===== CCTV ===== */
+        /* ===== CCTV & URDF 공통 ===== */
         .cctv {
             grid-column: span 2;
-            display: flex;
-            flex-direction: column;
-            min-height: 0;
         }
 
         .cctv-header {
@@ -393,6 +429,7 @@
             justify-content: space-between;
             align-items: center;
             margin-bottom: 4px;
+            flex-shrink: 0;
         }
 
         .cctv-rec {
@@ -429,6 +466,7 @@
             border-radius: 6px;
             overflow: hidden;
             flex: 1;
+            /* 구역 내 남은 공간 모두 차지 */
             min-height: 0;
         }
 
@@ -471,6 +509,7 @@
             display: flex;
             gap: 4px;
             align-items: center;
+            flex-shrink: 0;
         }
 
         .cctv-config input {
@@ -484,7 +523,7 @@
             font-size: 0.75em;
         }
 
-        /* 🚨 [추가] 비상정지/일시정지 오버레이 스타일 */
+        /* ===== 오버레이 (비상정지) ===== */
         #estop-overlay {
             display: none;
             position: fixed;
@@ -589,73 +628,75 @@
 
         <div class="card order-queue">
             <div class="card-title">📑 실시간 주문 큐 (/orders)</div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>ORDER_ID</th>
-                        <th>SUB (3종)</th>
-                        <th>MAIN</th>
-                        <th>STATUS</th>
-                        <th>TIME</th>
-                        <th>ACTION</th>
-                    </tr>
-                </thead>
-                <tbody id="order-tbody">
-                    <tr>
-                        <td colspan="6" style="text-align:center; color:#8b949e; padding:20px;">주문 대기 중...</td>
-                    </tr>
-                </tbody>
-            </table>
+            <div class="scroll-area">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ORDER_ID</th>
+                            <th>SUB (3종)</th>
+                            <th>MAIN</th>
+                            <th>STATUS</th>
+                            <th>TIME</th>
+                            <th>ACTION</th>
+                        </tr>
+                    </thead>
+                    <tbody id="order-tbody">
+                        <tr>
+                            <td colspan="6" style="text-align:center; color:#8b949e; padding:20px;">주문 대기 중...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
         </div>
 
         <div class="card robot-status">
             <div class="card-title">🤖 M0609 로봇 상태 (/robot_status)</div>
-            <div class="info-row"><span>STATE</span><span id="info-state">--</span></div>
-            <div class="info-row"><span>CURRENT_TASK</span><span id="info-task">--</span></div>
-            <div class="info-row"><span>GRIPPER</span><span id="info-gripper">--</span></div>
-            <div class="info-row"><span>LAST_UPDATE</span><span id="info-update">--</span></div>
+            <div class="scroll-area">
+                <div class="info-row"><span>STATE</span><span id="info-state">--</span></div>
+                <div class="info-row"><span>CURRENT_TASK</span><span id="info-task">--</span></div>
+                <div class="info-row"><span>GRIPPER</span><span id="info-gripper">--</span></div>
+                <div class="info-row"><span>LAST_UPDATE</span><span id="info-update">--</span></div>
 
-            <div class="joint-grid">
-                <div class="joint-cell">
-                    <div class="label">J1</div>
-                    <div id="j1" class="value">0.0</div>
+                <div class="joint-grid">
+                    <div class="joint-cell">
+                        <div class="label">J1</div>
+                        <div id="j1" class="value">0.0</div>
+                    </div>
+                    <div class="joint-cell">
+                        <div class="label">J2</div>
+                        <div id="j2" class="value">0.0</div>
+                    </div>
+                    <div class="joint-cell">
+                        <div class="label">J3</div>
+                        <div id="j3" class="value">0.0</div>
+                    </div>
+                    <div class="joint-cell">
+                        <div class="label">J4</div>
+                        <div id="j4" class="value">0.0</div>
+                    </div>
+                    <div class="joint-cell">
+                        <div class="label">J5</div>
+                        <div id="j5" class="value">0.0</div>
+                    </div>
+                    <div class="joint-cell">
+                        <div class="label">J6</div>
+                        <div id="j6" class="value">0.0</div>
+                    </div>
                 </div>
-                <div class="joint-cell">
-                    <div class="label">J2</div>
-                    <div id="j2" class="value">0.0</div>
-                </div>
-                <div class="joint-cell">
-                    <div class="label">J3</div>
-                    <div id="j3" class="value">0.0</div>
-                </div>
-                <div class="joint-cell">
-                    <div class="label">J4</div>
-                    <div id="j4" class="value">0.0</div>
-                </div>
-                <div class="joint-cell">
-                    <div class="label">J5</div>
-                    <div id="j5" class="value">0.0</div>
-                </div>
-                <div class="joint-cell">
-                    <div class="label">J6</div>
-                    <div id="j6" class="value">0.0</div>
-                </div>
-            </div>
 
-            <div class="ctrl-btns">
-                <button class="ctrl-btn ctrl-btn-blue" onclick="sendCommand('move_home')">🏠 홈 이동</button>
-                <button class="ctrl-btn ctrl-btn-orange" onclick="sendCommand('gripper_open')">🤏 그리퍼 OPEN</button>
-                <button class="ctrl-btn ctrl-btn-orange" onclick="sendCommand('gripper_close')">✊ 그리퍼 CLOSE</button>
-                <button class="ctrl-btn" onclick="sendCommand('reset')">↩ 상태 리셋</button>
+                <div class="ctrl-btns">
+                    <button class="ctrl-btn ctrl-btn-blue" onclick="sendCommand('move_home')">🏠 홈 이동</button>
+                    <button class="ctrl-btn ctrl-btn-orange" onclick="sendCommand('gripper_open')">🤏 그리퍼 OPEN</button>
+                    <button class="ctrl-btn ctrl-btn-orange" onclick="sendCommand('gripper_close')">✊ 그리퍼 CLOSE</button>
+                    <button class="ctrl-btn" onclick="sendCommand('reset')">↩ 상태 리셋</button>
+                </div>
             </div>
         </div>
 
-        <div class="card"
-            style="grid-column: span 2; overflow: hidden; display:flex; flex-direction:column; padding: 8px 12px;">
+        <div class="card" style="grid-column: span 2;">
             <div class="card-title">📊 작업 진행률</div>
             <div
                 style="display: grid; grid-template-columns: 160px 1fr; gap: 14px; flex:1; min-height:0; align-items:stretch;">
-
                 <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px;">
                     <div style="position:relative; width:140px; height:140px;">
                         <svg viewBox="0 0 120 120" style="width:140px; height:140px; position:absolute; top:0; left:0;">
@@ -703,8 +744,7 @@
                                 border-radius:6px; transition:width 0.5s ease;"></div>
                         </div>
                     </div>
-                    <div id="step-log-list"
-                        style="overflow-y:auto; font-size:0.73em; line-height:1.7; flex:1; min-height:0;">
+                    <div id="step-log-list" class="scroll-area" style="font-size:0.73em; line-height:1.7;">
                         <span style="color:#6e7681;">작업 로그가 여기 표시됩니다.</span>
                     </div>
                 </div>
@@ -720,9 +760,7 @@
                 <img id="cctv-img" src="" alt=""
                     onerror="this.style.display='none'; document.getElementById('cctv-noframe').style.display='flex';"
                     onload="this.style.display='block'; document.getElementById('cctv-noframe').style.display='none';">
-                <div id="cctv-noframe" class="cctv-noframe">
-                    스트림 URL 미설정 또는 연결 실패
-                </div>
+                <div id="cctv-noframe" class="cctv-noframe">스트림 URL 미설정 또는 연결 실패</div>
                 <div class="cctv-overlay">📍 CAM-01 · 작업영역</div>
                 <div class="cctv-overlay tr" id="cctv-time">--:--:--</div>
             </div>
@@ -779,9 +817,7 @@
                     <option value="from">부터 실행 (From)</option>
                 </select>
                 <button class="ctrl-btn ctrl-btn-blue" onclick="injectTestOrderWithStage()">▶ 부분 플레이</button>
-
                 <div style="width: 1px; background: #30363d; margin: 0 10px;"></div>
-
                 <button class="ctrl-btn" onclick="injectTestOrder()">🧪 일반 주문</button>
                 <button class="ctrl-btn ctrl-btn-orange" onclick="clearOrders()">🗑 주문 전체 삭제</button>
             </div>
@@ -805,14 +841,12 @@
         firebase.initializeApp(firebaseConfig);
         const db = firebase.database();
 
-        // ===== 시계 =====
         setInterval(() => {
             const d = new Date();
             const hms = d.toTimeString().slice(0, 8);
             document.getElementById('clock').textContent = hms;
         }, 1000);
 
-        // ===== Firebase 연결 상태 =====
         const connRef = db.ref('.info/connected');
         connRef.on('value', (snap) => {
             const fb = document.getElementById('badge-fb');
@@ -825,7 +859,6 @@
             }
         });
 
-        // ===== /orders 리스닝 =====
         db.ref('orders').on('value', (snap) => {
             const data = snap.val() || {};
             renderOrders(data);
@@ -877,14 +910,12 @@
             }).join('');
         }
 
-        // ===== /robot_status 리스닝 =====
         db.ref('robot_status').on('value', (snap) => {
             const s = snap.val() || {};
             const stateEl = document.getElementById('info-state');
             const stateBadge = document.getElementById('badge-robot');
             const state = s.state || 'idle';
 
-            // 🚨 비상정지/일시정지 화면 팝업 제어
             const estopOverlay = document.getElementById('estop-overlay');
             const estopTitle = document.getElementById('estop-title');
             const estopReason = document.getElementById('estop-reason');
@@ -894,7 +925,7 @@
 
             if (state === 'collision' || state === 'error') {
                 estopOverlay.style.display = 'flex';
-                estopOverlay.style.background = 'rgba(198, 40, 40, 0.85)'; // 빨간색
+                estopOverlay.style.background = 'rgba(198, 40, 40, 0.85)';
                 estopTitle.textContent = '⛔ 외력 감지 (안전 정지) ⛔';
                 estopReason.textContent = s.current_task || "로봇이 물리적 충돌을 감지했습니다.";
                 estopDesc.textContent = "안전을 위해 3초 대기 후 로봇이 홈으로 대피했습니다. 현장을 확인한 후 아래 버튼을 누르면 이 주문을 [1단계]부터 다시 시작합니다.";
@@ -902,7 +933,7 @@
                 btnRestart.style.display = 'inline-block';
             } else if (state === 'paused') {
                 estopOverlay.style.display = 'flex';
-                estopOverlay.style.background = 'rgba(210, 153, 34, 0.85)'; // 노란색
+                estopOverlay.style.background = 'rgba(210, 153, 34, 0.85)';
                 estopTitle.textContent = '⏸️ 시스템 일시 정지됨 ⏸️';
                 estopReason.textContent = "관리자에 의해 로봇 동작이 멈췄습니다.";
                 estopDesc.textContent = "작업 재개 버튼을 누르면 로봇이 멈춘 부분부터 이어서 작업을 끝까지 진행합니다.";
@@ -914,17 +945,11 @@
 
             stateEl.textContent = state.toUpperCase();
             if (state === 'idle') {
-                stateBadge.textContent = '🤖 IDLE';
-                stateBadge.className = 'badge badge-robot-idle';
+                stateBadge.textContent = '🤖 IDLE'; stateBadge.className = 'badge badge-robot-idle';
             } else if (state === 'moving') {
-                stateBadge.textContent = '🤖 MOVING';
-                stateBadge.className = 'badge badge-robot-moving';
-            } else if (state === 'error' || state === 'collision') {
-                stateBadge.textContent = '🤖 ERROR';
-                stateBadge.className = 'badge badge-robot-error';
-            } else if (state === 'paused') {
-                stateBadge.textContent = '🤖 PAUSED';
-                stateBadge.className = 'badge badge-robot-error';
+                stateBadge.textContent = '🤖 MOVING'; stateBadge.className = 'badge badge-robot-moving';
+            } else {
+                stateBadge.textContent = '🤖 ' + state.toUpperCase(); stateBadge.className = 'badge badge-robot-error';
             }
 
             document.getElementById('info-task').textContent = s.current_task || '-';
@@ -959,9 +984,7 @@
             const bar = document.getElementById('progress-bar');
             if (bar) {
                 bar.style.width = pct + '%';
-                bar.style.background = pct >= 100
-                    ? 'linear-gradient(90deg,#2ea043,#3fb950)'
-                    : 'linear-gradient(90deg,#1f6feb,#58a6ff)';
+                bar.style.background = pct >= 100 ? 'linear-gradient(90deg,#2ea043,#3fb950)' : 'linear-gradient(90deg,#1f6feb,#58a6ff)';
             }
             const barLabel = document.getElementById('progress-bar-label');
             if (barLabel) barLabel.textContent = `${s.step_index || 0} / ${s.total_steps || 0}`;
@@ -969,11 +992,7 @@
             const logEl = document.getElementById('step-log-list');
             if (logEl && logs.length > 0) {
                 logEl.innerHTML = [...logs].reverse().map(l => {
-                    const color = l.startsWith('✅') ? '#3fb950'
-                        : l.startsWith('❌') ? '#f85149'
-                            : l.startsWith('⏭️') ? '#8b949e'
-                                : l.startsWith('🛑') ? '#da3633'
-                                    : '#f0883e';
+                    const color = l.startsWith('✅') ? '#3fb950' : l.startsWith('❌') ? '#f85149' : l.startsWith('⏭️') ? '#8b949e' : l.startsWith('🛑') ? '#da3633' : '#f0883e';
                     return `<div style="color:${color}; padding:2px 0; border-bottom:1px solid #21262d;">${l}</div>`;
                 }).join('');
             } else if (logEl && logs.length === 0) {
@@ -981,136 +1000,89 @@
             }
         });
 
-        // ===== /menu_config 리스닝 =====
         db.ref('menu_config').on('value', (snap) => {
             const m = snap.val() || {};
-            document.getElementById('menu-sub').innerHTML =
-                (m.sub_dishes || []).map(x => `<span class="menu-tag tag-sub">${x}</span>`).join('') || '-';
-            document.getElementById('menu-main').innerHTML =
-                (m.main_dishes || []).map(x => `<span class="menu-tag tag-main">${x}</span>`).join('') || '-';
+            document.getElementById('menu-sub').innerHTML = (m.sub_dishes || []).map(x => `<span class="menu-tag tag-sub">${x}</span>`).join('') || '-';
+            document.getElementById('menu-main').innerHTML = (m.main_dishes || []).map(x => `<span class="menu-tag tag-main">${x}</span>`).join('') || '-';
         });
 
-        // ===== Raw DB 전체 ===== 
         db.ref('/').on('value', (snap) => {
             const data = snap.val() || {};
             document.getElementById('raw-db').textContent = JSON.stringify(data, null, 2);
         });
 
-        // ===== 명령 발행 =====
         function sendCommand(type) {
-            db.ref('command').set({
-                type: type,
-                timestamp: Math.floor(Date.now() / 1000)
-            });
-            console.log('[CMD] ' + type);
+            db.ref('command').set({ type: type, timestamp: Math.floor(Date.now() / 1000) });
         }
 
-        // 🚨 3가지 정지/복구 관련 명령 추가
         function sendEStop() {
             if (confirm('⏸️ 로봇을 일시 정지하시겠습니까?\n팝업을 닫으면 하던 행동부터 다시 진행됩니다.')) {
                 sendCommand('pause');
             }
         }
-
-        function sendResume() {
-            sendCommand('resume');
-        }
-
+        function sendResume() { sendCommand('resume'); }
         function sendRestart() {
             if (confirm('충돌 원인이 제거되었습니까?\n로봇을 초기화하고 실패한 주문을 처음부터 다시 시작합니다.')) {
                 sendCommand('reset_and_restart');
             }
         }
-
         function forceComplete(key) {
-            if (confirm('이 주문을 강제 완료 처리할까요?')) {
-                db.ref('orders/' + key).update({ status: 'completed' });
-            }
+            if (confirm('이 주문을 강제 완료 처리할까요?')) { db.ref('orders/' + key).update({ status: 'completed' }); }
         }
         function deleteOrder(key) {
-            if (confirm('이 주문을 삭제할까요?')) {
-                db.ref('orders/' + key).remove();
-            }
+            if (confirm('이 주문을 삭제할까요?')) { db.ref('orders/' + key).remove(); }
         }
 
-        // ===== 부분 실행 UI 컨트롤 =====
         function updateModeState() {
             const stage = document.getElementById('test-stage').value;
-            const modeSelect = document.getElementById('test-mode');
-            if (stage === "0") {
-                modeSelect.disabled = true;
-            } else {
-                modeSelect.disabled = false;
-            }
+            document.getElementById('test-mode').disabled = (stage === "0");
         }
 
-        // ===== 개발자 도구 =====
         function injectTestOrderWithStage() {
             const stage = parseInt(document.getElementById('test-stage').value);
             const mode = document.getElementById('test-mode').value;
-            const subs = ['피클', '단무지', '김치', '샐러드'];
+            const subs = ['피클', '단무지', '김치', '샐러드'].sort(() => 0.5 - Math.random());
             const mains = ['돈까스', '제육'];
-            const shuffled = subs.sort(() => 0.5 - Math.random());
-
             const payload = {
                 timestamp: Math.floor(Date.now() / 1000),
-                sub_dishes: shuffled.slice(0, 3),
+                sub_dishes: subs.slice(0, 3),
                 main_dish: mains[Math.floor(Math.random() * 2)],
                 status: 'pending'
             };
-
             if (stage > 0) {
                 payload.target_stage = stage;
                 payload.run_mode = mode;
-                console.log(`[Test Order] 부분 실행: ${stage}단계 ${mode === 'only' ? '만' : '부터'} 실행`);
-            } else {
-                console.log(`[Test Order] 전체 단계 실행`);
             }
-
             const newRef = db.ref('orders').push();
             payload.order_id = newRef.key;
             newRef.set(payload);
         }
 
         function injectTestOrder() {
-            document.getElementById('test-stage').value = "0";
-            updateModeState();
-            injectTestOrderWithStage();
+            document.getElementById('test-stage').value = "0"; updateModeState(); injectTestOrderWithStage();
         }
 
         function clearOrders() {
-            if (confirm('⚠️ 모든 주문을 삭제할까요?')) {
-                db.ref('orders').remove();
-            }
+            if (confirm('⚠️ 모든 주문을 삭제할까요?')) { db.ref('orders').remove(); }
         }
 
         db.ref('menu_config').once('value', (snap) => {
             if (!snap.val()) {
-                db.ref('menu_config').set({
-                    sub_dishes: ['피클', '단무지', '김치', '샐러드'],
-                    main_dishes: ['돈까스', '제육']
-                });
+                db.ref('menu_config').set({ sub_dishes: ['피클', '단무지', '김치', '샐러드'], main_dishes: ['돈까스', '제육'] });
             }
         });
 
-        // ===== CCTV =====
         function connectCctv() {
             const url = document.getElementById('cctv-url').value.trim();
             const img = document.getElementById('cctv-img');
-            if (!url) {
-                alert('스트림 URL 을 입력해주세요.');
-                return;
-            }
+            if (!url) { alert('스트림 URL 을 입력해주세요.'); return; }
             img.src = url + (url.includes('?') ? '&' : '?') + 't=' + Date.now();
-            console.log('[CCTV] 연결 시도: ' + url);
         }
 
         function disconnectCctv() {
             const img = document.getElementById('cctv-img');
-            img.src = '';
-            img.style.display = 'none';
+            img.src = ''; img.style.display = 'none';
             document.getElementById('cctv-noframe').style.display = 'flex';
-            console.log('[CCTV] 연결 중지');
         }
 
         setInterval(() => {
@@ -1118,11 +1090,8 @@
             if (t) t.textContent = new Date().toTimeString().slice(0, 8);
         }, 1000);
 
-        window.addEventListener('load', () => {
-            setTimeout(connectCctv, 500);
-        });
+        window.addEventListener('load', () => { setTimeout(connectCctv, 500); });
 
-        // ===== 3D URDF 실시간 관절 동기화 (SSE from robot_dashboard.py) =====
         let sseSource = null;
         function connectJointSSE() {
             sseSource = new EventSource('http://localhost:8080/events');
@@ -1135,13 +1104,9 @@
                         if (cell) cell.textContent = (jp[i] || 0).toFixed(1) + '°';
                     }
                     if (window._urdfUpdateJoints) window._urdfUpdateJoints(jp);
-                } catch (err) {
-                    console.error('SSE Parse Error:', err);
-                }
+                } catch (err) { }
             };
-            sseSource.onerror = function () {
-                console.log('[SSE] 연결 오류 - 재연결 대기 중...');
-            };
+            sseSource.onerror = function () { };
         }
         connectJointSSE();
     </script>
@@ -1198,18 +1163,13 @@
             const url = document.getElementById('urdf-url').value;
             if (!url) return;
             document.getElementById('v-status').textContent = 'loading...';
-
-            if (robot) {
-                scene.remove(robot);
-                robot = null;
-            }
+            if (robot) { scene.remove(robot); robot = null; }
 
             loader.load(url, function (r) {
                 robot = r;
                 robot.rotation.x = -Math.PI / 2;
                 scene.add(robot);
                 document.getElementById('v-status').textContent = 'loaded ✔';
-                console.log('URDF loaded, joints:', Object.keys(robot.joints));
             });
         };
 
