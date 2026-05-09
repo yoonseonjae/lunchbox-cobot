@@ -131,7 +131,15 @@ class BaseStage(ABC):
         self.rc.set_gripper(width_mm)
 
     def _check_grip(self) -> bool:
-        return self.rc.check_grip()
+        while True:
+            try:
+                return self.rc.check_grip()
+            except Exception as e:
+                if "generator already executing" in str(e):
+                    time.sleep(0.5)
+                    continue
+                self._logger.error(f"_check_grip 오류: {e}")
+                return False
         
     def _tick(self, label: str, done: bool = False) -> None:
         self.sm.tick(label)

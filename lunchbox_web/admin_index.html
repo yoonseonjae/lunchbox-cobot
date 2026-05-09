@@ -603,9 +603,99 @@
             <span id="badge-fb" class="badge badge-fb-off">🔴 Firebase</span>
             <span id="badge-robot" class="badge badge-robot-idle">🤖 IDLE</span>
             <span id="clock" class="clock">--:--:--</span>
+            <button id="btn-testmode" onclick="toggleTestMode()" style="background:#1a3a4d; color:#58a6ff; border:1px solid #1f6feb; padding:5px 12px; font-weight:bold; border-radius:6px; cursor:pointer; font-size:0.8em;">🧪 테스트모드</button>
             <button class="estop-btn" onclick="sendEStop()">🛑 비상정지 / 일시정지</button>
         </div>
     </header>
+
+    <!-- ===== 테스트모드 패널 ===== -->
+    <div id="testmode-panel" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.85); z-index:200; align-items:center; justify-content:center;">
+        <div style="background:#161b22; border:2px solid #1f6feb; border-radius:12px; padding:28px 32px; min-width:520px; max-width:680px; width:90%; color:#c9d1d9; font-family:'Consolas','Monaco',monospace;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <h2 style="color:#58a6ff; font-size:1.1em;">🧪 테스트 모드</h2>
+                <button onclick="toggleTestMode()" style="background:none; border:none; color:#8b949e; font-size:1.4em; cursor:pointer;">✕</button>
+            </div>
+
+            <!-- 시나리오 선택 -->
+            <div style="margin-bottom:16px;">
+                <div style="color:#8b949e; font-size:0.8em; margin-bottom:6px; letter-spacing:1px;">SCENARIO</div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                    <label style="display:flex; align-items:center; gap:8px; background:#21262d; border-radius:6px; padding:10px 12px; cursor:pointer; border:1px solid transparent;" id="sc-stage_only">
+                        <input type="radio" name="scenario" value="stage_only" checked onchange="updateScenarioUI()"> 스테이지 범위 실행
+                    </label>
+                    <label style="display:flex; align-items:center; gap:8px; background:#21262d; border-radius:6px; padding:10px 12px; cursor:pointer; border:1px solid transparent;" id="sc-tong_pick_place">
+                        <input type="radio" name="scenario" value="tong_pick_place" onchange="updateScenarioUI()"> 집게 집기/내려놓기만
+                    </label>
+                    <label style="display:flex; align-items:center; gap:8px; background:#21262d; border-radius:6px; padding:10px 12px; cursor:pointer; border:1px solid transparent;" id="sc-main_dish_full">
+                        <input type="radio" name="scenario" value="main_dish_full" onchange="updateScenarioUI()"> 메인반찬 전체 시퀀스
+                    </label>
+                    <label style="display:flex; align-items:center; gap:8px; background:#21262d; border-radius:6px; padding:10px 12px; cursor:pointer; border:1px solid transparent;" id="sc-rice_full">
+                        <input type="radio" name="scenario" value="rice_full" onchange="updateScenarioUI()"> 밥 담기 전체
+                    </label>
+                    <label style="display:flex; align-items:center; gap:8px; background:#21262d; border-radius:6px; padding:10px 12px; cursor:pointer; border:1px solid transparent;" id="sc-delivery_full">
+                        <input type="radio" name="scenario" value="delivery_full" onchange="updateScenarioUI()"> 식판 배달 전체
+                    </label>
+                </div>
+            </div>
+
+            <!-- 스테이지 범위 (stage_only 시나리오일 때만 활성) -->
+            <div id="stage-range-row" style="margin-bottom:16px;">
+                <div style="color:#8b949e; font-size:0.8em; margin-bottom:6px; letter-spacing:1px;">STAGE RANGE</div>
+                <div style="display:flex; gap:10px; align-items:center;">
+                    <select id="tm-stage-from" class="ctrl-btn" style="padding:5px; cursor:pointer; flex:1;">
+                        <option value="1">1단계 (식판)</option>
+                        <option value="2">2단계 (서브반찬)</option>
+                        <option value="3">3단계 (메인반찬)</option>
+                        <option value="4">4단계 (밥)</option>
+                        <option value="5">5단계 (배달)</option>
+                    </select>
+                    <span style="color:#8b949e;">~</span>
+                    <select id="tm-stage-to" class="ctrl-btn" style="padding:5px; cursor:pointer; flex:1;">
+                        <option value="1">1단계 (식판)</option>
+                        <option value="2">2단계 (서브반찬)</option>
+                        <option value="3" selected>3단계 (메인반찬)</option>
+                        <option value="4">4단계 (밥)</option>
+                        <option value="5">5단계 (배달)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- 메인반찬 선택 (main_dish_full, stage_only 포함) -->
+            <div id="main-dish-row" style="margin-bottom:16px;">
+                <div style="color:#8b949e; font-size:0.8em; margin-bottom:6px; letter-spacing:1px;">MAIN DISH</div>
+                <div style="display:flex; gap:8px;">
+                    <label style="display:flex; align-items:center; gap:6px; background:#21262d; border-radius:6px; padding:8px 14px; cursor:pointer;">
+                        <input type="radio" name="tm-main" value="돈까스" checked> 돈까스
+                    </label>
+                    <label style="display:flex; align-items:center; gap:6px; background:#21262d; border-radius:6px; padding:8px 14px; cursor:pointer;">
+                        <input type="radio" name="tm-main" value="제육"> 제육
+                    </label>
+                </div>
+            </div>
+
+            <!-- 반복 횟수 -->
+            <div style="margin-bottom:20px;">
+                <div style="color:#8b949e; font-size:0.8em; margin-bottom:6px; letter-spacing:1px;">REPEAT COUNT</div>
+                <div style="display:flex; align-items:center; gap:12px;">
+                    <input type="range" id="tm-repeat-slider" min="1" max="10" value="1" oninput="document.getElementById('tm-repeat-val').textContent=this.value" style="flex:1; accent-color:#1f6feb;">
+                    <span id="tm-repeat-val" style="color:#58a6ff; font-weight:bold; min-width:24px; text-align:center;">1</span>
+                    <span style="color:#8b949e; font-size:0.85em;">회</span>
+                </div>
+            </div>
+
+            <!-- 실행 버튼 -->
+            <div style="display:flex; gap:10px;">
+                <button id="btn-test-run" onclick="sendTestRun()" style="flex:1; background:#1f6feb; color:white; border:none; padding:10px; font-weight:bold; border-radius:8px; cursor:pointer; font-size:0.95em;">▶ 테스트 실행</button>
+                <button id="btn-test-cancel" onclick="sendTestCancel()" style="display:none; flex:1; background:#6b1a1a; color:#f85149; border:1px solid #da3633; padding:10px; font-weight:bold; border-radius:8px; cursor:pointer; font-size:0.95em;">⏹ 테스트 중단 & 홈 복귀</button>
+                <button onclick="toggleTestMode()" style="background:#21262d; color:#8b949e; border:1px solid #30363d; padding:10px 16px; border-radius:8px; cursor:pointer; font-size:0.9em;">닫기</button>
+            </div>
+
+            <div style="margin-top:12px; color:#8b949e; font-size:0.75em; line-height:1.6;">
+                ※ 테스트 실행은 현재 주문 큐와 무관하게 동작합니다.<br>
+                ※ 비상정지/일시정지는 헤더의 🛑 버튼을 사용하세요.
+            </div>
+        </div>
+    </div>
 
     <div class="container">
 
@@ -943,6 +1033,8 @@
                 if (estopOverlay) estopOverlay.style.display = 'none';
             }
 
+            if (state === 'idle' && _testRunning) setTestRunning(false);
+
             stateEl.textContent = state.toUpperCase();
             if (state === 'idle') {
                 stateBadge.textContent = '🤖 IDLE'; stateBadge.className = 'badge badge-robot-idle';
@@ -1064,6 +1156,78 @@
 
         function clearOrders() {
             if (confirm('⚠️ 모든 주문을 삭제할까요?')) { db.ref('orders').remove(); }
+        }
+
+        // ── 테스트 모드 ──────────────────────────────────────────
+        let _testmodeOpen = false;
+        function toggleTestMode() {
+            _testmodeOpen = !_testmodeOpen;
+            const panel = document.getElementById('testmode-panel');
+            const btn   = document.getElementById('btn-testmode');
+            panel.style.display = _testmodeOpen ? 'flex' : 'none';
+            btn.style.background = _testmodeOpen ? '#1f6feb' : '#1a3a4d';
+            btn.style.color      = _testmodeOpen ? '#ffffff' : '#58a6ff';
+            if (_testmodeOpen) updateScenarioUI();
+        }
+
+        function updateScenarioUI() {
+            const scenario = document.querySelector('input[name="scenario"]:checked')?.value || 'stage_only';
+            // 시나리오 라벨 테두리 강조
+            ['stage_only','tong_pick_place','main_dish_full','rice_full','delivery_full'].forEach(s => {
+                const el = document.getElementById('sc-' + s);
+                if (el) el.style.borderColor = (s === scenario) ? '#1f6feb' : 'transparent';
+            });
+            // 스테이지 범위: stage_only 일 때만 표시
+            document.getElementById('stage-range-row').style.display = (scenario === 'stage_only') ? 'block' : 'none';
+            // 메인반찬: stage_only, main_dish_full 일 때만 표시
+            document.getElementById('main-dish-row').style.display =
+                (scenario === 'stage_only' || scenario === 'main_dish_full') ? 'block' : 'none';
+        }
+
+        let _testRunning = false;
+
+        function setTestRunning(running) {
+            _testRunning = running;
+            const btnRun    = document.getElementById('btn-test-run');
+            const btnCancel = document.getElementById('btn-test-cancel');
+            if (!btnRun || !btnCancel) return;
+            if (running) {
+                btnRun.style.display    = 'none';
+                btnCancel.style.display = 'flex';
+            } else {
+                btnRun.style.display    = 'flex';
+                btnCancel.style.display = 'none';
+            }
+        }
+
+        function sendTestRun() {
+            const scenario   = document.querySelector('input[name="scenario"]:checked')?.value || 'stage_only';
+            const repeat     = parseInt(document.getElementById('tm-repeat-slider').value) || 1;
+            const stage_from = parseInt(document.getElementById('tm-stage-from').value);
+            const stage_to   = parseInt(document.getElementById('tm-stage-to').value);
+            const main_dish  = document.querySelector('input[name="tm-main"]:checked')?.value || '돈까스';
+
+            if (stage_from > stage_to && scenario === 'stage_only') {
+                alert('시작 스테이지가 종료 스테이지보다 클 수 없습니다.'); return;
+            }
+
+            const payload = {
+                timestamp: Math.floor(Date.now() / 1000),
+                scenario,
+                repeat,
+                stage_from,
+                stage_to,
+                main_dish,
+                sub_dishes: ['피클', '단무지', '김치'],
+            };
+            db.ref('test_command').set(payload);
+            setTestRunning(true);
+        }
+
+        function sendTestCancel() {
+            if (!confirm('⏹ 테스트를 중단하고 홈으로 복귀할까요?\n현재 동작이 끝난 뒤 루프를 중단합니다.')) return;
+            db.ref('command').set({ type: 'test_cancel', timestamp: Math.floor(Date.now() / 1000) });
+            setTestRunning(false);
         }
 
         db.ref('menu_config').once('value', (snap) => {

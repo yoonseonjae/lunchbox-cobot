@@ -65,6 +65,7 @@ class RobotController:
         self._init_ok:     bool         = False
 
         # 🚨 [수정] 일시정지 상태 및 복구 클라이언트 초기화
+        self._test_cancel = threading.Event()  # 테스트 전용 중단 플래그
         self.last_failed_order = None
         self.recover_client = self.node.create_client(SetRobotControl, '/dsr01/system/set_robot_control')
 
@@ -82,6 +83,9 @@ class RobotController:
         self.node.get_logger().info("/robot_order 토픽 구독 등록")
 
         self.repo.listen_commands(self._on_command_received)
+
+        if hasattr(self.repo, 'listen_test_command'):
+            self.repo.listen_test_command(self._on_test_command_received)
 
         self._t_task = threading.Thread(target=self._task_loop, name="task", daemon=False)
         self._t_status = threading.Thread(target=self._status_upload_loop, name="status_upload", daemon=True)
@@ -171,8 +175,158 @@ class RobotController:
             
             self.sm.update_status(state=RobotState.IDLE, current_task="대기 중")
 
+        elif cmd_type == "test_cancel":
+            self.node.get_logger().info("🧪 테스트 중단 요청")
+            self._test_cancel.set()
+            self.rc.do_stop()
+
         elif cmd_type in ("move_home", "gripper_open", "gripper_close", "gripper_full_open"):
             self._cmd_queue.put(cmd_type)
+
+    # ── 테스트 모드 ───────────────────────────────────────────────
+    def _on_test_command_received(self, payload: dict) -> None:
+        self._init_event.wait()
+        if not self._init_ok:
+            self.node.get_logger().warn("테스트 커맨드 무시: 초기화 실패 상태")
+            return
+        self.node.get_logger().info(f"테스트 커맨드 처리: {payload}")
+        self._order_queue.put(("__test__", payload))
+
+    def _run_test_scenario(self, payload: dict) -> None:
+        scenario    = payload.get("scenario", "stage_only")
+        repeat      = max(1, int(payload.get("repeat", 1)))
+        stage_from  = int(payload.get("stage_from", 1))
+        stage_to    = int(payload.get("stage_to", 5))
+        main_dish   = payload.get("main_dish", "돈까스")
+        sub_dishes  = payload.get("sub_dishes", ["피클", "단무지", "김치"])
+
+        self._test_cancel.clear()
+        self.sm.update_status(state=RobotState.MOVING,
+                              current_task=f"🧪 테스트모드: {scenario} × {repeat}회")
+        self.node.get_logger().info(f"🧪 테스트 시작: {scenario} × {repeat}회")
+
+        cancelled = False
+        try:
+            for i in range(repeat):
+                if self._test_cancel.is_set():
+                    cancelled = True
+                    break
+                self.sm.add_step_log(f"🧪 [{i+1}/{repeat}] {scenario} 시작")
+                self.sm.wait_if_paused()
+
+                if scenario == "stage_only":
+                    dummy_order = Order(
+                        key=f"__test_{i}__",
+                        sub_dishes=sub_dishes,
+                        main_dish=main_dish,
+                        target_stage=stage_from,
+                        run_mode="only" if stage_from == stage_to else "from",
+                        status="pending",
+                    )
+                    self._process_test_stages(dummy_order, stage_from, stage_to)
+
+                elif scenario == "tong_pick_place":
+                    self._run_tong_pick_place()
+
+                elif scenario == "main_dish_full":
+                    self._run_main_dish_full(main_dish)
+
+                elif scenario == "rice_full":
+                    dummy_order = Order(
+                        key=f"__test_{i}__",
+                        sub_dishes=[], main_dish="",
+                        target_stage=4, run_mode="only",
+                    )
+                    self._process_test_stages(dummy_order, 4, 4)
+
+                elif scenario == "delivery_full":
+                    dummy_order = Order(
+                        key=f"__test_{i}__",
+                        sub_dishes=[], main_dish="",
+                        target_stage=5, run_mode="only",
+                    )
+                    self._process_test_stages(dummy_order, 5, 5)
+
+                if self._test_cancel.is_set():
+                    cancelled = True
+                    break
+
+                self.sm.add_step_log(f"✅ [{i+1}/{repeat}] 완료")
+
+        except Exception as e:
+            self.node.get_logger().error(f"테스트 오류: {e}")
+            self.sm.add_step_log(f"❌ 테스트 오류: {e}")
+            cancelled = True
+
+        if cancelled:
+            self.node.get_logger().info("🧪 테스트 중단 → 홈 복귀")
+            self.sm.add_step_log("🛑 테스트 중단 → 홈 복귀 중...")
+            self.sm.update_status(state=RobotState.MOVING, current_task="🛑 테스트 중단 - 홈 복귀 중")
+            try:
+                self.rc.do_movej(self.cm.home_joint())
+                self.rc.set_gripper(100)
+            except Exception:
+                pass
+            self.sm.add_step_log("🏠 홈 복귀 완료")
+        else:
+            self.node.get_logger().info("🧪 테스트 완료")
+
+        self._test_cancel.clear()
+        self.sm.update_status(state=RobotState.IDLE, current_task="대기 중")
+
+    def _process_test_stages(self, order: Order, stage_from: int, stage_to: int) -> None:
+        valid_subs = [d for d in order.sub_dishes[:4] if d in self.cm.available_sub_dishes()]
+
+        def should_run(n):
+            return stage_from <= n <= stage_to
+
+        def check_stop():
+            if self._test_cancel.is_set(): raise InterruptedError("테스트 중단 요청")
+            if self.sm.is_stopped(): raise InterruptedError("테스트 중단")
+            self.sm.wait_if_paused()
+
+        if should_run(1):
+            check_stop()
+            result = TraySetupStage(self.sm, self.rc, self.cm).execute()
+            if result != StageResult.SUCCESS: raise RuntimeError(f"Stage1 실패")
+        if should_run(2):
+            for idx, dish in enumerate(valid_subs):
+                check_stop()
+                result = SubDishStage(self.sm, self.rc, self.cm, dish, slot_index=idx).execute()
+                if result != StageResult.SUCCESS: raise RuntimeError(f"Stage2 실패: {dish}")
+        if should_run(3):
+            check_stop()
+            result = MainDishStage(self.sm, self.rc, self.cm, order.main_dish).execute()
+            if result != StageResult.SUCCESS: raise RuntimeError(f"Stage3 실패")
+        if should_run(4):
+            check_stop()
+            result = RiceStage(self.sm, self.rc, self.cm).execute()
+            if result != StageResult.SUCCESS: raise RuntimeError(f"Stage4 실패")
+        if should_run(5):
+            check_stop()
+            result = DeliveryStage(self.sm, self.rc, self.cm).execute()
+            if result != StageResult.SUCCESS: raise RuntimeError(f"Stage5 실패")
+
+    def _run_tong_pick_place(self) -> None:
+        """집게 집기 → 집게 내려놓기만 수행 (Stage3 부분 모션)."""
+        c3   = self.cm.stage(3)
+        home = self.cm.home_joint()
+        self.sm.update_status(current_task="🧪 집게 Pick & Place")
+        self.rc.do_movej(home)
+        self.rc.set_gripper(100)
+        self.rc.do_movel(c3["tong_approach_l"])   # 집게 위 접근
+        self.rc.set_gripper(30)                    # 집게 잡기
+        self.rc.do_movel(c3["tong_lift_l"])        # 집게 들고 위로
+        self.rc.do_movel(c3["tong_return_above_l"]) # 집게 복귀 상단
+        self.rc.do_movel(c3["tong_return_l"])      # 집게 내려놓기
+        self.rc.set_gripper(100)
+        self.rc.do_movej(home)
+
+    def _run_main_dish_full(self, main_dish: str) -> None:
+        """집게 집기 ~ 메인반찬 집기 ~ 식판 투하 ~ 집게 복귀 전체."""
+        result = MainDishStage(self.sm, self.rc, self.cm, main_dish).execute()
+        if result != StageResult.SUCCESS:
+            raise RuntimeError("Main dish 테스트 실패")
 
     def _process_order(self, order: Order) -> None:
         key = order.key
@@ -302,8 +456,11 @@ class RobotController:
                 except queue.Empty: break
 
             try:
-                order = self._order_queue.get(timeout=0.5)
-                self._process_order(order)
+                item = self._order_queue.get(timeout=0.5)
+                if isinstance(item, tuple) and item[0] == "__test__":
+                    self._run_test_scenario(item[1])
+                else:
+                    self._process_order(item)
             except queue.Empty: continue
             except Exception as e:
                 self.node.get_logger().error(f"작업 루프 오류: {e}")

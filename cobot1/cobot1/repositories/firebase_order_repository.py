@@ -29,9 +29,10 @@ except ImportError:
 
 
 VALID_COMMANDS = {
-    "emergency_stop", "resume", "pause", "reset_and_restart", # 🚨 pause, reset_and_restart 추가
+    "emergency_stop", "resume", "pause", "reset_and_restart",
     "move_home",
     "gripper_open", "gripper_close", "gripper_full_open",
+    "test_cancel",
 }
 
 
@@ -46,7 +47,7 @@ class FirebaseOrderRepository(OrderRepository):
 
     def __init__(self, credentials_path: str, database_url: str):
         self._available         = False
-        self._last_cmd_ts: int  = 0
+        self._last_cmd_ts: int  = int(time.time())  # 부팅 이전 커맨드 무시
         self._processed: Set[str] = set()
 
         if not _FIREBASE_OK:
@@ -152,6 +153,29 @@ class FirebaseOrderRepository(OrderRepository):
 
         firebase_db.reference("/command").listen(_on_cmd)
         _logger.info("/command 리스너 등록")
+
+    # ── 테스트 커맨드 리스닝 (/test_command) ─────────────────────
+    def listen_test_command(self, callback: Callable[[dict], None]):
+        if not self._available:
+            return
+
+        # 노드 시작 시각 기준으로 이전 커맨드는 모두 무시
+        _boot_ts: int = int(time.time())
+        self._last_test_ts: int = _boot_ts
+
+        def _on_test_cmd(event):
+            if event.data is None or not isinstance(event.data, dict):
+                return
+            ts = event.data.get("timestamp", 0)
+            if ts <= self._last_test_ts:
+                _logger.info(f"테스트 커맨드 무시 (오래된 timestamp {ts} <= {self._last_test_ts})")
+                return
+            self._last_test_ts = ts
+            _logger.info(f"테스트 커맨드 수신: {event.data}")
+            callback(event.data)
+
+        firebase_db.reference("/test_command").listen(_on_test_cmd)
+        _logger.info("/test_command 리스너 등록")
 
     # ── 로봇 상태 업로드 ──────────────────────────────────────────
     def upload_robot_status(self, payload: dict):

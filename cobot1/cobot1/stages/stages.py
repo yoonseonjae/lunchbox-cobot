@@ -104,22 +104,22 @@ class SubDishStage(BaseStage):
             self._gripper(100)
 
             # 반찬통 접근 (관절) → 픽 위치 (직선)
-            if not self._movej(pick_wp["pre_pick_j"],        f"🥗 [{self.dish_name}] 픽 준비", radius=50):      return StageResult.STOPPED
-            if not self._movel(pick_wp["pick_l"],            f"🥗 [{self.dish_name}] 픽 위치", radius=50):      return StageResult.STOPPED
+            if not self._movej(pick_wp["pre_pick_j"],        f"🥗 [{self.dish_name}] 픽 준비", radius=40):      return StageResult.STOPPED
+            if not self._movel(pick_wp["pick_l"],            f"🥗 [{self.dish_name}] 픽 위치", radius=40):      return StageResult.STOPPED
 
             # 집기
             self._gripper(50)
             self.rc.wait(0.5)
             if not self._check_grip():
-                return
-            
+                return StageResult.ERROR
+
             self._tick(f"🥗 [{self.dish_name}] 집기", done=True)
 
             # 들어올림
-            if not self._amovel(pick_wp["up_pick_l"],         f"🥗 [{self.dish_name}] 들어올림", radius=50):     return StageResult.STOPPED
+            if not self._amovel(pick_wp["up_pick_l"],         f"🥗 [{self.dish_name}] 들어올림", radius=40):     return StageResult.STOPPED
 
             # 식판 슬롯 이동 (관절) → 놓기 (직선)
-            if not self._amovej(place_wp["pre_place_j"],       f"🥗 [{self.dish_name}] 슬롯 접근", radius=50):    return StageResult.STOPPED
+            if not self._amovej(place_wp["pre_place_j"],       f"🥗 [{self.dish_name}] 슬롯 접근", radius=40):    return StageResult.STOPPED
             if not self._movel(place_wp["place_l"],           f"🥗 [{self.dish_name}] 놓기"):         return StageResult.STOPPED
 
             # 놓기
@@ -155,35 +155,38 @@ class MainDishStage(BaseStage):
 
         try:
             # 홈
-            if not self._movej(home,                     "🍖 [3/5] 홈 이동"):       return StageResult.STOPPED
+            if not self._movej(home,                          "🍖 [3/5] 홈 이동"):            return StageResult.STOPPED
             self._gripper(100)
 
-            # 집게 상단 → 하단
-            if not self._movel(c3["approach_l"],         "🍖 [3/5] 집게 상단"):     return StageResult.STOPPED
-            if not self._movel(c3["above_l"],            "🍖 [3/5] 집게 하단"):     return StageResult.STOPPED
+            # 집게 위 접근
+            if not self._movel(c3["tong_approach_l"],         "🍖 [3/5] 집게 위 접근"):       return StageResult.STOPPED
 
-            # 반찬 집기
+            # 집게 잡기
             self._gripper(30)
-            self._tick("🍖 [3/5] 반찬 집기", done=True)
+            self._tick("🍖 [3/5] 집게 파지", done=True)
 
-            # 들어올려 식판으로 이동
-            if not self._movel(c3["up_l"],               "🍖 [3/5] 집어올림"):      return StageResult.STOPPED
-            if not self._movel(c3["transit_l"],          "🍖 [3/5] 식판 상단"):     return StageResult.STOPPED
-            if not self._movel(c3["place_above_l"],      "🍖 [3/5] 식판 하단"):     return StageResult.STOPPED
+            # 집게 들고 위로
+            if not self._movel(c3["tong_lift_l"],             "🍖 [3/5] 집게 들어올림"):      return StageResult.STOPPED
 
-            # 투하
+            # 메인 반찬 용기 상단 → 집기 위치
+            if not self._movel(c3["main_dish_transit_l"],     "🍖 [3/5] 메인반찬 상단"):      return StageResult.STOPPED
+            if not self._movel(c3["main_dish_pick_l"],        "🍖 [3/5] 메인반찬 집기 위치"): return StageResult.STOPPED
+
+            # 메인 반찬 집기
             self._gripper(20)
-            self._tick("🍖 [3/5] 반찬 투하", done=True)
+            self._tick("🍖 [3/5] 메인반찬 집기", done=True)
 
-            # 소스 뿌리기 시퀀스
-            if not self._movel(c3["place_up2_l"],        "🍖 [3/5] 소스 상단"):     return StageResult.STOPPED
-            if not self._movel(c3["sauce_above_l"],      "🍖 [3/5] 소스 접근"):     return StageResult.STOPPED
+            # 반찬 집고 위로
+            if not self._movel(c3["main_dish_lift_l"],        "🍖 [3/5] 반찬 들어올림"):      return StageResult.STOPPED
+
+            # 식판 앞으로 이동 → 반찬 내려놓기
+            if not self._movel(c3["tray_approach_l"],         "🍖 [3/5] 식판 앞 접근"):       return StageResult.STOPPED
             self._gripper(30)
-            if not self._movel(c3["sauce_pour_l"],       "🍖 [3/5] 소스 붓기"):     return StageResult.STOPPED
+            if not self._movel(c3["tray_release_l"],          "🍖 [3/5] 반찬 투하"):          return StageResult.STOPPED
 
             # 집게 원위치
-            if not self._movel(c3["ret1_l"],             "🍖 [3/5] 집게 복귀 상단"): return StageResult.STOPPED
-            if not self._movel(c3["ret2_l"],             "🍖 [3/5] 집게 복귀 하단"): return StageResult.STOPPED
+            if not self._movel(c3["tong_return_above_l"],     "🍖 [3/5] 집게 복귀 상단"):     return StageResult.STOPPED
+            if not self._movel(c3["tong_return_l"],           "🍖 [3/5] 집게 복귀 하단"):     return StageResult.STOPPED
             self._gripper(100)
 
             # 홈 복귀
@@ -226,7 +229,6 @@ class RiceStage(BaseStage):
             self._gripper(50)
 
             # 밥솥 접근
-            if not self._movel(c4["approach_l"],       "🍚 [4/5] 밥솥 접근"):      return StageResult.STOPPED
             if not self._movel(c4["above_l"],          "🍚 [4/5] 밥솥 위"):        return StageResult.STOPPED
 
             # 스쿱 집기
@@ -247,6 +249,8 @@ class RiceStage(BaseStage):
             # 스쿱 복귀
             if not self._movel(c4["place_up_l"],       "🍚 [4/5] 스쿱 복귀"):      return StageResult.STOPPED
             if not self._movel(c4["back_l"],           "🍚 [4/5] 밥솥 복귀"):      return StageResult.STOPPED
+            if not self._movel(c4["back_lean_l"],           "🍚 [4/5] 밥솥 복귀"):      return StageResult.STOPPED
+
 
             # 스쿱 내려놓기
             self._gripper(100)
