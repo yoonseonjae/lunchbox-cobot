@@ -135,52 +135,18 @@ class RobotController:
 
     def _on_command_received(self, cmd_type: str) -> None:
         self.node.get_logger().info(f"명령 수신: {cmd_type}")
-        self._handle_command(cmd_type)
-
-    def _handle_command(self, cmd_type: str) -> None:
-        if cmd_type == "emergency_stop":
-            self.rc.do_stop()
-            self.sm.trigger_emergency_stop()
-
-        elif cmd_type == "pause":
-            self.node.get_logger().info("⏸️ 시스템 일시 정지")
-            self.sm.set_pause() 
-            self.rc.do_stop()
+        # pause/resume 플래그는 즉시 세팅해야 진행 중인 스테이지가 wait_if_paused()에서 멈춤.
+        # do_stop() 등 rclpy spin을 유발하는 호출은 _cmd_queue로 task 스레드에 위임.
+        if cmd_type == "pause":
+            self.sm.set_pause()
             self.sm.update_status(state=RobotState.IDLE, current_task="⏸️ 일시 정지됨")
-
+            self._cmd_queue.put("pause_stop")  # do_stop()만 task 스레드에서 처리
         elif cmd_type == "resume":
-            self.node.get_logger().info("▶️ 작업 재개")
-            self.sm.clear_pause() 
+            self.sm.clear_pause()
             if self.sm.is_stopped():
                 self.sm.clear_emergency_stop()
             self.sm.update_status(state=RobotState.MOVING, current_task="작업 재개 중...")
-
-        elif cmd_type == "reset_and_restart":
-            self.node.get_logger().info("🔄 충돌 해제 및 주문 1단계부터 재시작 시도")
-            
-            if self.recover_client.wait_for_service(timeout_sec=1.0):
-                req = SetRobotControl.Request()
-                req.robot_control = 2
-                self.recover_client.call_async(req)
-                time.sleep(1.0)
-            
-            self.sm.clear_emergency_stop()
-            self.sm.clear_pause()
-            
-            if self.last_failed_order:
-                self.node.get_logger().info(f"🚀 재시작할 주문 큐에 삽입: {self.last_failed_order.key}")
-                self.last_failed_order.target_stage = 1
-                self._order_queue.put(self.last_failed_order)
-                self.last_failed_order = None
-            
-            self.sm.update_status(state=RobotState.IDLE, current_task="대기 중")
-
-        elif cmd_type == "test_cancel":
-            self.node.get_logger().info("🧪 테스트 중단 요청")
-            self._test_cancel.set()
-            self.rc.do_stop()
-
-        elif cmd_type in ("move_home", "gripper_open", "gripper_close", "gripper_full_open"):
+        else:
             self._cmd_queue.put(cmd_type)
 
     # ── 테스트 모드 ───────────────────────────────────────────────
@@ -418,7 +384,37 @@ class RobotController:
             self.sm.update_status(state=RobotState.ERROR, current_task=f"오류: {e}")
 
     def _execute_cmd(self, cmd_type: str) -> None:
-        if cmd_type == "move_home":
+        if cmd_type == "emergency_stop":
+            self.rc.do_stop()
+            self.sm.trigger_emergency_stop()
+
+        elif cmd_type == "pause_stop":
+            # 플래그는 _on_command_received에서 이미 세팅됨. do_stop()만 여기서 처리.
+            self.node.get_logger().info("⏸️ 로봇 정지 명령")
+            self.rc.do_stop()
+
+        elif cmd_type == "reset_and_restart":
+            self.node.get_logger().info("🔄 충돌 해제 및 주문 1단계부터 재시작 시도")
+            if self.recover_client.wait_for_service(timeout_sec=1.0):
+                req = SetRobotControl.Request()
+                req.robot_control = 2
+                self.recover_client.call_async(req)
+                time.sleep(1.0)
+            self.sm.clear_emergency_stop()
+            self.sm.clear_pause()
+            if self.last_failed_order:
+                self.node.get_logger().info(f"🚀 재시작할 주문 큐에 삽입: {self.last_failed_order.key}")
+                self.last_failed_order.target_stage = 1
+                self._order_queue.put(self.last_failed_order)
+                self.last_failed_order = None
+            self.sm.update_status(state=RobotState.IDLE, current_task="대기 중")
+
+        elif cmd_type == "test_cancel":
+            self.node.get_logger().info("🧪 테스트 중단 요청")
+            self._test_cancel.set()
+            self.rc.do_stop()
+
+        elif cmd_type == "move_home":
             self.sm.update_status(state=RobotState.MOVING, current_task="홈 이동 중")
             self.rc.do_movej(self.cm.home_joint())
             self.sm.update_status(state=RobotState.IDLE, current_task="대기 중")
