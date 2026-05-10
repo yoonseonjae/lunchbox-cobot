@@ -46,6 +46,12 @@ class FirebaseOrderRepository(OrderRepository):
     """
 
     def __init__(self, credentials_path: str, database_url: str):
+        """지정한 시스타인 파일로 Firebase 앱을 초기화한다.
+
+        Args:
+            credentials_path (str): Firebase 서비스 계정 JSON 키 파일 경로.
+            database_url (str): Firebase Realtime DB URL.
+        """
         self._available         = False
         self._last_cmd_ts: int  = int(time.time())  # 부팅 이전 커맨드 무시
         self._processed: Set[str] = set()
@@ -70,10 +76,22 @@ class FirebaseOrderRepository(OrderRepository):
 
     @property
     def available(self) -> bool:
+        """Firebase 초기화 성공 여부를 반환한다.
+
+        Returns:
+            bool: 초기화되면 True, 실패 또는 오프라인이면 False.
+        """
         return self._available
 
     # ── 주문 리스닝 ───────────────────────────────────────────────
     def listen_orders(self, callback: Callable[[Order], None]):
+        """/orders 노드를 실시간 리스닝하며 pending 주문을 콜백으로 전달한다.
+
+        Args:
+            callback (Callable[[Order], None]): 주문 수신 시 호출할 콜백.
+        Returns:
+            None
+        """
         if not self._available:
             return
 
@@ -96,6 +114,15 @@ class FirebaseOrderRepository(OrderRepository):
         _logger.info("/orders 리스너 등록")
 
     def _try_enqueue(self, key: str, data: dict, callback):
+        """데이터가 pending이고 미수신 주문이면 Order를 생성해 콜백에 넘기는 한다.
+
+        Args:
+            key (str): Firebase 주문 키.
+            data (dict): Firebase에서 읽은 주문 데이터.
+            callback: 주문 전달 콜백.
+        Returns:
+            None
+        """
         if not data or data.get("status") != "pending":
             return
         if key in self._processed:
@@ -114,15 +141,44 @@ class FirebaseOrderRepository(OrderRepository):
 
     # ── 주문 상태 변경 ─────────────────────────────────────────────
     def mark_processing(self, order_key: str):
+        """주문 상태를 'processing'으로 Firebase에 업데이트한다.
+
+        Args:
+            order_key (str): 타겟 주문 키.
+        Returns:
+            None
+        """
         self._update_order(order_key, {"status": "processing"})
 
     def mark_completed(self, order_key: str):
+        """주문 상태를 'completed'로 Firebase에 업데이트한다.
+
+        Args:
+            order_key (str): 타겟 주문 키.
+        Returns:
+            None
+        """
         self._update_order(order_key, {"status": "completed"})
 
     def mark_error(self, order_key: str):
+        """주문 상태를 'error'로 Firebase에 업데이트한다.
+
+        Args:
+            order_key (str): 타겟 주문 키.
+        Returns:
+            None
+        """
         self._update_order(order_key, {"status": "error"})
 
     def _update_order(self, key: str, payload: dict):
+        """Firebase /orders/{key}를 payload로 부분 업데이트한다.
+
+        Args:
+            key (str): 업데이트할 주문 키.
+            payload (dict): 업데이트할 필드와 값.
+        Returns:
+            None
+        """
         if not self._available:
             return
         try:
@@ -132,6 +188,13 @@ class FirebaseOrderRepository(OrderRepository):
 
     # ── 명령 리스닝 ───────────────────────────────────────────────
     def listen_commands(self, callback: Callable[[str], None]):
+        """/command 노드를 실시간 리스닝하며 유효한 명령을 콜백에 전달한다.
+
+        Args:
+            callback (Callable[[str], None]): 명령 유형 문자열을 인수로 받는 콜백.
+        Returns:
+            None
+        """
         if not self._available:
             return
 
@@ -156,6 +219,13 @@ class FirebaseOrderRepository(OrderRepository):
 
     # ── 테스트 커맨드 리스닝 (/test_command) ─────────────────────
     def listen_test_command(self, callback: Callable[[dict], None]):
+        """/test_command 노드를 리스닝하며 부팅 이후 도착한 테스트 커맨드를 콜백에 전달한다.
+
+        Args:
+            callback (Callable[[dict], None]): 테스트 커맨드 dict를 인수로 받는 콜백.
+        Returns:
+            None
+        """
         if not self._available:
             return
 
@@ -179,6 +249,13 @@ class FirebaseOrderRepository(OrderRepository):
 
     # ── 로봇 상태 업로드 ──────────────────────────────────────────
     def upload_robot_status(self, payload: dict):
+        """로봇 상태를 Firebase /robot_status에 업로드한다.
+
+        Args:
+            payload (dict): 업로드할 로봇 상태 데이터.
+        Returns:
+            None
+        """
         if not self._available:
             return
         try:

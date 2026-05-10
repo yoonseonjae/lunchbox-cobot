@@ -1,9 +1,9 @@
 # cobot1 단위 테스트 보고서
 
-**작성일**: 2026년 5월 8일  
+**작성일**: 2026년 5월 9일  
 **패키지**: `src/cobot1/` — 나만의 도련님 도시락 로봇 제어 시스템  
 **로봇**: Doosan M0609 / ROS2 Humble  
-**브랜치**: `ksw_develop`
+**브랜치**: `main`
 
 ---
 
@@ -16,16 +16,17 @@ cobot1 패키지는 실제 로봇 하드웨어(DSR_ROBOT2 API)와 Firebase 클�
 |------|-----------|
 | 로직 검증 | 각 클래스의 메서드가 의도대로 동작하는가 |
 | 규칙 검증 | **DSR Rule 7** — DSR API는 반드시 작업 스레드에서만 호출하는가 |
-| 안전성 검증 | 비상정지, 재개, 그리퍼 제어의 올바른 동작 |
+| 안전성 검증 | 비상정지·일시정지·재개·그리퍼 제어의 올바른 동작 |
 | 스레드 안전성 | 다수 스레드 동시 접근 시 충돌이 없는가 |
 | 경계값 검증 | 잘못된 입력, 한도 초과 등 예외 처리 |
+| 도메인 모델 | Order 데이터클래스 필드 및 OrderRepository 인터페이스 |
 
 ---
 
 ## 2. 테스트 환경 구성
 
 ### 핵심 문제
-`DSR_ROBOT2`, `DR_init`, `rclpy` 등은 **실제 로봇 환경에서만 import 가능**합니다.  
+`DSR_ROBOT2`, `DR_init`, `rclpy`, `dsr_msgs2` 등은 **실제 로봇 환경에서만 import 가능**합니다.  
 일반 Python 환경에서 import 시 `ImportError`가 발생하므로, 테스트 전용 stub을 구성했습니다.
 
 ### 해결 방법 — `conftest.py` (sys.modules stub)
@@ -34,10 +35,11 @@ cobot1 패키지는 실제 로봇 하드웨어(DSR_ROBOT2 API)와 Firebase 클�
 test/
 ├── __init__.py
 ├── conftest.py              ← pytest 자동 로드, sys.modules에 stub 사전 등록
-├── test_robot_client.py
-├── test_state_manager.py
 ├── test_mock_repository.py
-└── test_robot_controller.py
+├── test_order_model.py      ← 2026-05-09 신규 추가
+├── test_robot_client.py
+├── test_robot_controller.py
+└── test_state_manager.py
 ```
 
 `conftest.py`는 pytest 실행 시 **자동으로 가장 먼저 로드**됩니다.  
@@ -51,6 +53,7 @@ test/
 | `DR_common2` | posj, posx 좌표 변환 함수 |
 | `firebase_admin`, `firebase_admin.db` | Firebase Realtime DB |
 | `std_msgs`, `std_msgs.msg` | ROS2 메시지 타입 |
+| `dsr_msgs2`, `dsr_msgs2.srv` | DSR 서비스 타입 (2026-05-09 추가) |
 
 ### Mock 패턴
 
@@ -60,14 +63,14 @@ mock_movej = MagicMock()
 client.inject(movej=mock_movej, ...)
 
 # 호출 검증
-mock_movej.assert_called_once_with(coords, vel=30, acc=30)
+mock_movej.assert_called_once_with(coords, vel=30, acc=30, radius=None)
 ```
 
 ---
 
 ## 3. 테스트 파일 구성
 
-### 3-1. `test_robot_client.py` — 26개 테스트
+### 3-1. `test_robot_client.py` — 31개 테스트
 
 **대상**: `cobot1/robot_client.py`  
 **역할**: DSR API를 직접 호출하는 유일한 계층
@@ -75,11 +78,15 @@ mock_movej.assert_called_once_with(coords, vel=30, acc=30)
 | 테스트 클래스 | 검증 항목 |
 |--------------|-----------|
 | `TestRobotClientInit` | 기본값 설정, inject 전/후 상태 |
-| `TestRobotClientMotion` | movej/movel/amovej/amovel 호출 및 posj/posx 변환 |
-| `TestWaitMotionDone` | check_motion 폴링 루프, rclpy 종료 시 탈출 |
-| `TestGripper` | 5가지 폭의 DO핀 조합, 잘못된 폭 예외 |
-| `TestStopMethods` | do_stop → move_stop(3), 예외 내부 처리 |
+| `TestRobotClientMotion` | movej/movel/amovej/amovel 호출 및 posj/posx 변환, radius 파라미터 |
+| `TestWaitMotionDone` | check_motion 폴링 루프 |
+| `TestGripper` | 5가지 폭의 DO핀 조합, 잘못된 폭 무시 |
+| `TestStopMethods` | do_stop → move_stop(3), inject 전 안전 호출 |
 | `TestConstants` | ON/OFF 값, 타이밍 상수 양수 여부 |
+| `TestCheckGrip` (신규) | DI1 핀 기반 파지 확인, 예외 시 True 반환 |
+| `TestGetRobotState` (신규) | DSR 위임, inject 전 기본값 1 |
+| `TestGetForce` (신규) | get_tool_force/get_external_torque 반환값 형식 |
+| `TestMotionWithRadius` (신규) | radius 파라미터 DSR 전달 확인 |
 
 **핵심 검증 — 그리퍼 DO핀 테이블**
 
@@ -93,10 +100,10 @@ mock_movej.assert_called_once_with(coords, vel=30, acc=30)
 
 ---
 
-### 3-2. `test_state_manager.py` — 28개 테스트
+### 3-2. `test_state_manager.py` — 57개 테스트
 
 **대상**: `cobot1/state_manager.py`  
-**역할**: 로봇 상태 관리, 비상정지 이벤트, 진행률 추적
+**역할**: 로봇 상태 관리, 비상정지·일시정지 이벤트, 진행률 추적
 
 | 테스트 클래스 | 검증 항목 |
 |--------------|-----------|
@@ -107,7 +114,11 @@ mock_movej.assert_called_once_with(coords, vel=30, acc=30)
 | `TestTick` | 진행률 계산, 99% 상한, total_steps 초과 방지 |
 | `TestEmergencyStop` | 비상정지/재개 이벤트 및 상태 전이 |
 | `TestOrderDeduplication` | 중복 주문 방지, 50 스레드 동시 mark |
-| `TestGetStatusDict` | 11개 필수 키, 타입 검증 |
+| `TestGetStatusDict` | 11개 필수 키, 타입 검증, collision/gripper 반영 |
+| `TestPauseResume` (신규) | set_pause/clear_pause/is_paused/wait_if_paused |
+| `TestEnumValues` (신규) | RobotState·GripperWidth 열거형 값 및 멤버 수 |
+| `TestRobotStatusDefaults` (신규) | 기본 gripper(100mm), joint_pos([0]*6), collision(False) |
+| `TestStepLogDataclass` (신규) | timestamp/completed 필드, 30 스레드 동시 추가 |
 
 ---
 
@@ -125,27 +136,39 @@ mock_movej.assert_called_once_with(coords, vel=30, acc=30)
 
 ---
 
-### 3-4. `test_robot_controller.py` — 26개 테스트
+### 3-4. `test_order_model.py` — 21개 테스트 (신규)
 
-**대상**: `cobot1/robot_controller.py`  
-**역할**: 4개 스레드 조율, 주문 처리, 명령 처리
+**대상**: `cobot1/repositories/order_repository.py`, `mock_order_repository.py`  
+**역할**: Order 도메인 객체 및 OrderRepository 추상 인터페이스 검증
 
 | 테스트 클래스 | 검증 항목 |
 |--------------|-----------|
-| `TestHandleCommandEmergencyStop` | do_stop() 호출, 상태·이벤트 변경 |
-| `TestHandleCommandResume` | 비상정지 해제, 상태 복원, 정상 시 무효 |
-| `TestHandleCommandMoveHome` | Rule 7: cmd_queue 위임, do_movej 직접 호출 금지 |
-| `TestHandleCommandGripper` | Rule 7: cmd_queue 위임, set_gripper 직접 호출 금지 |
-| `TestExecuteCmd` | 작업 스레드 내 실제 DSR 호출 검증 |
-| `TestOrderReceived` | 첫 주문 큐 적재, 중복 주문 차단 |
+| `TestOrderDataclass` | 필드 저장, default(status=pending, target_stage=0, run_mode=from) |
+| `TestOrderRepositoryAbstract` | 직접 생성 불가, Mock이 구현체임을 확인, 추상 메서드 목록 |
+| `TestMockOrderRepositoryExtra` | 기본 주문 key/dish, 다양한 명령, 20 스레드 동시 삽입 |
 
-**핵심 검증 — DSR Rule 7**
+---
 
-Firebase 콜백 스레드에서 `_handle_command("gripper_open")`이 호출될 때:
-- ❌ 잘못된 방식: `self.rc.set_gripper(50)` 직접 호출 (Rule 7 위반)
-- ✅ 올바른 방식: `self._cmd_queue.put("gripper_open")` → 작업 스레드가 처리
+### 3-5. `test_robot_controller.py` — 41개 테스트
 
-이 두 가지를 명시적으로 분리하여 각각 테스트합니다.
+**대상**: `cobot1/robot_controller.py`  
+**역할**: 명령 수신·주문 큐 관리·ROS 메시지 파싱
+
+| 테스트 클래스 | 검증 항목 |
+|--------------|-----------|
+| `TestCommandReceivedPause` | pause → is_paused, "pause_stop" 큐 삽입, 상태 IDLE |
+| `TestCommandReceivedResume` | resume → 일시정지 해제, 비상정지 해제, 상태 MOVING |
+| `TestCommandReceivedQueueDelegation` | Rule 7: 명령 → _cmd_queue 위임, resume은 큐 비삽입 |
+| `TestOrderReceived` | 첫 주문 큐 적재, 중복 방지, 10 스레드 동시 수신 |
+| `TestRosOrderMsg` | JSON 파싱, 빈 key 거부, 잘못된 JSON 예외 없음 |
+
+**핵심 검증 — pause/resume 즉시 처리 vs 큐 위임**
+
+| 명령 | 처리 방식 |
+|------|----------|
+| `pause` | 즉시: sm.set_pause() + 상태 IDLE → 큐에 "pause_stop" (do_stop 위임) |
+| `resume` | 즉시: sm.clear_pause() + 비상정지 해제 → 큐에 아무것도 삽입 안 함 |
+| 나머지 | 전부 cmd_queue 에 위임 (Rule 7) |
 
 ---
 
@@ -153,14 +176,15 @@ Firebase 콜백 스레드에서 `_handle_command("gripper_open")`이 호출될 �
 
 ```bash
 # 전체 테스트 실행
-cd ~/cobot_ws
+cd ~/cobot_ws/src
 python3 -m pytest cobot1/test/ -v
 
 # 특정 파일만
 python3 -m pytest cobot1/test/test_robot_client.py -v
 
-# 특정 테스트만
-python3 -m pytest cobot1/test/test_robot_controller.py::TestHandleCommandEmergencyStop -v
+# 신규 추가 테스트만
+python3 -m pytest cobot1/test/test_order_model.py -v
+python3 -m pytest cobot1/test/test_state_manager.py::TestPauseResume -v
 
 # 빠른 실패 확인 (첫 번째 실패 시 중단)
 python3 -m pytest cobot1/test/ -v -x
@@ -170,26 +194,28 @@ python3 -m pytest cobot1/test/ -v -x
 
 ## 5. 최종 테스트 결과
 
+**실행 일시**: 2026년 5월 9일  
 **실행 명령**: `python3 -m pytest cobot1/test/ -v`  
 **환경**: Python 3.10.12 / pytest-9.0.3 / ROS2 Humble
 
 ```
-============================= test session starts ==============================
+============================= test session info ==============================
 platform linux -- Python 3.10.12, pytest-9.0.3
-collected 92 items
+collected 162 items
 
-92 passed in 1.38s
+162 passed in 11.62s
 ```
 
 ### 파일별 결과 요약
 
-| 테스트 파일 | 테스트 수 | PASS | FAIL |
-|------------|:---------:|:----:|:----:|
-| `test_mock_repository.py` | 12 | **12** | 0 |
-| `test_robot_client.py` | 26 | **26** | 0 |
-| `test_robot_controller.py` | 26 | **26** | 0 |
-| `test_state_manager.py` | 28 | **28** | 0 |
-| **합계** | **92** | **92** | **0** |
+| 테스트 파일 | 테스트 수 | PASS | FAIL | 비고 |
+|------------|:---------:|:----:|:----:|------|
+| `test_mock_repository.py` | 12 | **12** | 0 | 기존 유지 |
+| `test_order_model.py` | 21 | **21** | 0 | 2026-05-09 신규 |
+| `test_robot_client.py` | 31 | **31** | 0 | +14 신규 추가 |
+| `test_robot_controller.py` | 41 | **41** | 0 | 전면 재작성 |
+| `test_state_manager.py` | 57 | **57** | 0 | +29 신규 추가 |
+| **합계** | **162** | **162** | **0** | |
 
 ---
 
@@ -212,64 +238,109 @@ collected 92 items
 | 11 | `TestUploadRobotStatus::test_multiple_statuses_accumulated` | ✅ | 5회 업로드 → 5개 누적 |
 | 12 | `TestUploadRobotStatus::test_thread_safe_status_upload` | ✅ | 20개 스레드 동시 업로드 충돌 없음 |
 
-### test_robot_client.py (26/26 PASS)
+### test_order_model.py (21/21 PASS) — 신규
 
 | # | 테스트명 | 결과 | 검증 내용 |
 |---|---------|:----:|-----------|
-| 1 | `TestRobotClientInit::test_default_vel_acc` | ✅ | 기본 vel=30, acc=30 |
+| 1 | `TestOrderDataclass::test_required_fields_stored` | ✅ | key/sub_dishes/main_dish 저장 |
+| 2 | `TestOrderDataclass::test_default_status_is_pending` | ✅ | status 기본값 = "pending" |
+| 3 | `TestOrderDataclass::test_default_target_stage_zero` | ✅ | target_stage 기본값 = 0 |
+| 4 | `TestOrderDataclass::test_default_run_mode_from` | ✅ | run_mode 기본값 = "from" |
+| 5 | `TestOrderDataclass::test_custom_target_stage` | ✅ | target_stage=3 지정 가능 |
+| 6 | `TestOrderDataclass::test_custom_run_mode_only` | ✅ | run_mode="only" 지정 가능 |
+| 7 | `TestOrderDataclass::test_custom_status` | ✅ | status="processing" 지정 가능 |
+| 8 | `TestOrderDataclass::test_sub_dishes_can_be_empty_list` | ✅ | 빈 sub_dishes 허용 |
+| 9 | `TestOrderDataclass::test_sub_dishes_multiple_items` | ✅ | 3개 반찬 목록 저장 |
+| 10 | `TestOrderDataclass::test_order_equality_by_key` | ✅ | 동일 key 비교 |
+| 11 | `TestOrderRepositoryAbstract::test_cannot_instantiate_abstract_class` | ✅ | 직접 생성 시 TypeError |
+| 12 | `TestOrderRepositoryAbstract::test_mock_order_repository_is_concrete` | ✅ | Mock이 구체 구현체임을 확인 |
+| 13 | `TestOrderRepositoryAbstract::test_abstract_methods_defined` | ✅ | 6개 추상 메서드 전부 정의됨 |
+| 14 | `TestMockOrderRepositoryExtra::test_inject_order_default_key_starts_with_mock` | ✅ | 기본 주문 key는 "mock_" 시작 |
+| 15 | `TestMockOrderRepositoryExtra::test_inject_order_default_main_dish` | ✅ | 기본 주문 main_dish = "돈까스" |
+| 16 | `TestMockOrderRepositoryExtra::test_inject_order_default_sub_dishes` | ✅ | 기본 주문 sub_dishes ≥ 1개 |
+| 17 | `TestMockOrderRepositoryExtra::test_multiple_listeners_not_supported_but_safe` | ✅ | listen_orders 두 번 호출 예외 없음 |
+| 18 | `TestMockOrderRepositoryExtra::test_upload_robot_status_accumulates_payloads` | ✅ | 3회 업로드 → 3개 누적 |
+| 19 | `TestMockOrderRepositoryExtra::test_upload_robot_status_payload_content` | ✅ | 저장된 페이로드 내용 일치 |
+| 20 | `TestMockOrderRepositoryExtra::test_inject_command_various_types` | ✅ | 4가지 명령 타입 큐 적재 |
+| 21 | `TestMockOrderRepositoryExtra::test_concurrent_inject_order_is_thread_safe` | ✅ | 20개 스레드 동시 삽입 충돌 없음 |
+
+### test_robot_client.py (31/31 PASS)
+
+| # | 테스트명 | 결과 | 검증 내용 |
+|---|---------|:----:|-----------|
+| 1 | `TestRobotClientInit::test_default_vel_acc` | ✅ | 기본 vel=50, acc=50 |
 | 2 | `TestRobotClientInit::test_custom_vel_acc` | ✅ | 커스텀 vel=60, acc=60 |
 | 3 | `TestRobotClientInit::test_inject_not_called_dsr_is_none` | ✅ | inject 전 DSR 함수 모두 None |
 | 4 | `TestRobotClientInit::test_inject_sets_all_dsr_functions` | ✅ | inject 후 전체 DSR 함수 바인딩 확인 |
-| 5 | `TestRobotClientMotion::test_do_movej_calls_movej_and_mwait` | ✅ | movej() + mwait() 순서대로 호출 |
-| 6 | `TestRobotClientMotion::test_do_movel_calls_movel_with_dr_base_and_mwait` | ✅ | movel(ref=DR_BASE) + mwait() |
+| 5 | `TestRobotClientMotion::test_do_movej_calls_movej_and_mwait` | ✅ | movej(coords, vel, acc, radius=None) + mwait() |
+| 6 | `TestRobotClientMotion::test_do_movel_calls_movel_with_dr_base_and_mwait` | ✅ | movel(ref=DR_BASE, radius=None) + mwait() |
 | 7 | `TestRobotClientMotion::test_do_amovej_no_mwait` | ✅ | 비동기 이동 시 mwait 미호출 |
 | 8 | `TestRobotClientMotion::test_do_amovel_no_mwait` | ✅ | 비동기 직선 이동 시 mwait 미호출 |
 | 9 | `TestRobotClientMotion::test_posj_called_in_movej` | ✅ | movej 호출 전 posj() 좌표 변환 |
 | 10 | `TestRobotClientMotion::test_posx_called_in_movel` | ✅ | movel 호출 전 posx() 좌표 변환 |
 | 11 | `TestWaitMotionDone::test_returns_true_when_already_idle` | ✅ | check_motion==0 이면 즉시 True 반환 |
 | 12 | `TestWaitMotionDone::test_polls_until_idle` | ✅ | Busy→Busy→Idle 3회 폴링 후 True |
-| 13 | `TestWaitMotionDone::test_returns_false_when_rclpy_stops` | ✅ | rclpy.ok()==False 시 False 반환 |
+| 13 | `TestWaitMotionDone::test_returns_true_after_polling` | ✅ | Busy→Idle 전환 후 True 반환 |
 | 14 | `TestGripper::test_set_gripper_do_pins[5]` | ✅ | 5mm → DO1=ON, DO2=OFF, DO3=OFF |
 | 15 | `TestGripper::test_set_gripper_do_pins[20]` | ✅ | 20mm → DO1=ON, DO2=OFF, DO3=ON |
 | 16 | `TestGripper::test_set_gripper_do_pins[30]` | ✅ | 30mm → DO1=ON, DO2=ON, DO3=OFF |
 | 17 | `TestGripper::test_set_gripper_do_pins[50]` | ✅ | 50mm → DO1=OFF, DO2=OFF, DO3=ON |
 | 18 | `TestGripper::test_set_gripper_do_pins[100]` | ✅ | 100mm → DO1=OFF, DO2=ON, DO3=OFF |
-| 19 | `TestGripper::test_set_gripper_calls_wait_with_settle_sec` | ✅ | wait(GRIPPER_SETTLE_SEC=2.0) 호출 |
-| 20 | `TestGripper::test_invalid_gripper_width_raises_valueerror` | ✅ | 999mm → ValueError("지원하지 않는") |
+| 19 | `TestGripper::test_set_gripper_calls_time_sleep_with_settle_sec` | ✅ | time.sleep(GRIPPER_SETTLE_SEC=2.0) 호출 |
+| 20 | `TestGripper::test_invalid_gripper_width_silently_ignored` | ✅ | 999mm → DO 출력 없이 무시 |
 | 21 | `TestGripper::test_gripper_map_covers_all_widths` | ✅ | _GRIPPER_MAP 키 = {5, 20, 30, 50, 100} |
 | 22 | `TestStopMethods::test_do_stop_calls_move_stop_3` | ✅ | do_stop() → move_stop(3) |
-| 23 | `TestStopMethods::test_move_stop_with_immediate_mode` | ✅ | move_stop(0) 직접 호출 |
-| 24 | `TestStopMethods::test_move_stop_exception_is_caught` | ✅ | move_stop 예외 상위 전파 없음 |
+| 23 | `TestStopMethods::test_do_stop_no_error_when_not_injected` | ✅ | inject 전 do_stop() 예외 없음 |
+| 24 | `TestStopMethods::test_do_stop_propagates_dsr_error` | ✅ | DSR 예외는 호출자에게 전파됨 확인 |
 | 25 | `TestConstants::test_on_off_values` | ✅ | ON=1, OFF=0 |
 | 26 | `TestConstants::test_timing_constants_are_positive` | ✅ | 모든 타이밍 상수 > 0 |
+| 27 | `TestCheckGrip::test_check_grip_returns_true_when_di1_is_1` | ✅ | DI1=1 → 파지 성공(True) |
+| 28 | `TestCheckGrip::test_check_grip_returns_false_when_di1_is_0` | ✅ | DI1=0 → 파지 실패(False) |
+| 29 | `TestCheckGrip::test_check_grip_returns_true_on_exception` | ✅ | DI 오류 시 안전 fallback(True) |
+| 30 | `TestGetRobotState::test_get_robot_state_delegates_to_dsr` | ✅ | DSR 반환값 그대로 전달 |
+| 31 | `TestGetRobotState::test_get_robot_state_returns_1_when_not_injected` | ✅ | inject 전 기본값 1(STANDBY) |
+| 32 | `TestGetRobotState::test_get_robot_state_returns_standby_by_default` | ✅ | inject 후 DSR 기본값 1 확인 |
+| 33 | `TestGetForce::test_get_tool_force_returns_6_element_list` | ✅ | 반환값 list, 길이 6 |
+| 34 | `TestGetForce::test_get_tool_force_returns_zeros_when_not_injected` | ✅ | inject 전 [0.0]*6 반환 |
+| 35 | `TestGetForce::test_get_external_torque_returns_6_element_list` | ✅ | 반환값 list, 길이 6 |
+| 36 | `TestGetForce::test_get_external_torque_returns_zeros_when_not_injected` | ✅ | inject 전 [0.0]*6 반환 |
+| 37 | `TestMotionWithRadius::test_do_movej_with_radius_passed_to_dsr` | ✅ | radius=50.0 DSR에 전달 |
+| 38 | `TestMotionWithRadius::test_do_movel_with_radius_passed_to_dsr` | ✅ | radius=30.0 DSR에 전달 |
+| 39 | `TestMotionWithRadius::test_do_movej_radius_none_by_default` | ✅ | 미지정 시 radius=None |
+| 40 | `TestMotionWithRadius::test_do_amovej_with_radius` | ✅ | 비동기 이동에도 radius 전달 |
 
-### test_robot_controller.py (26/26 PASS)
+### test_robot_controller.py (41/41 PASS) — 전면 재작성
 
 | # | 테스트명 | 결과 | 검증 내용 |
 |---|---------|:----:|-----------|
-| 1 | `TestHandleCommandEmergencyStop::test_do_stop_called` | ✅ | 비상정지 명령 → rc.do_stop() 호출 |
-| 2 | `TestHandleCommandEmergencyStop::test_state_set_to_emergency_stop` | ✅ | 상태 → EMERGENCY_STOP |
-| 3 | `TestHandleCommandEmergencyStop::test_emergency_event_is_set` | ✅ | emergency_stop 이벤트 set |
-| 4 | `TestHandleCommandResume::test_clears_emergency_stop_when_stopped` | ✅ | 비상정지 중 resume → 이벤트 clear |
-| 5 | `TestHandleCommandResume::test_state_returns_to_idle_after_resume` | ✅ | resume 후 상태 → IDLE |
-| 6 | `TestHandleCommandResume::test_resume_when_not_stopped_has_no_effect` | ✅ | 정상 상태에서 resume → 변화 없음 |
-| 7 | `TestHandleCommandMoveHome::test_move_home_enqueued_to_cmd_queue` | ✅ | **Rule 7**: _cmd_queue에 "move_home" 삽입 |
-| 8 | `TestHandleCommandMoveHome::test_move_home_does_not_call_movej_directly` | ✅ | **Rule 7**: do_movej() 직접 호출 없음 |
-| 9 | `TestHandleCommandMoveHome::test_state_not_changed_by_handle_command` | ✅ | 콜백 스레드에서 상태 변경 없음 |
-| 10 | `TestHandleCommandGripper::test_gripper_open_enqueued` | ✅ | **Rule 7**: "gripper_open" → _cmd_queue |
-| 11 | `TestHandleCommandGripper::test_gripper_close_enqueued` | ✅ | **Rule 7**: "gripper_close" → _cmd_queue |
-| 12 | `TestHandleCommandGripper::test_gripper_full_open_enqueued` | ✅ | **Rule 7**: "gripper_full_open" → _cmd_queue |
-| 13 | `TestHandleCommandGripper::test_gripper_does_not_call_set_gripper_directly` | ✅ | **Rule 7**: set_gripper() 직접 호출 없음 |
-| 14 | `TestHandleCommandGripper::test_unknown_command_no_exception` | ✅ | 알 수 없는 명령 → 예외 없음 |
-| 15 | `TestExecuteCmd::test_execute_move_home_calls_movej` | ✅ | 작업 스레드에서 do_movej(home_coords) |
-| 16 | `TestExecuteCmd::test_execute_gripper_open` | ✅ | 작업 스레드에서 set_gripper(50) |
-| 17 | `TestExecuteCmd::test_execute_gripper_close` | ✅ | 작업 스레드에서 set_gripper(5) |
-| 18 | `TestExecuteCmd::test_execute_gripper_full_open` | ✅ | 작업 스레드에서 set_gripper(100) |
-| 19 | `TestExecuteCmd::test_execute_move_home_updates_state` | ✅ | 실행 후 상태 → IDLE |
-| 20 | `TestOrderReceived::test_first_order_enqueued` | ✅ | 첫 주문 → _order_queue 적재 |
-| 21 | `TestOrderReceived::test_duplicate_order_not_enqueued` | ✅ | 동일 key 두 번 → 큐에 1개만 |
+| 1 | `TestCommandReceivedPause::test_pause_sets_paused_state` | ✅ | pause → is_paused() = True |
+| 2 | `TestCommandReceivedPause::test_pause_puts_pause_stop_in_cmd_queue` | ✅ | pause → "pause_stop" 큐 삽입 |
+| 3 | `TestCommandReceivedPause::test_pause_updates_state_to_idle` | ✅ | pause → 상태 IDLE |
+| 4 | `TestCommandReceivedPause::test_pause_does_not_directly_call_do_stop` | ✅ | Rule 7: do_stop() 직접 호출 없음 |
+| 5 | `TestCommandReceivedResume::test_resume_clears_paused_state` | ✅ | resume → is_paused() = False |
+| 6 | `TestCommandReceivedResume::test_resume_clears_emergency_stop_when_stopped` | ✅ | 비상정지 중 resume → 이벤트 해제 |
+| 7 | `TestCommandReceivedResume::test_resume_updates_state_to_moving` | ✅ | resume → 상태 MOVING |
+| 8 | `TestCommandReceivedResume::test_resume_when_not_paused_no_exception` | ✅ | 정상 상태 resume → 예외 없음 |
+| 9 | `TestCommandReceivedQueueDelegation::test_emergency_stop_enqueued_to_cmd_queue` | ✅ | emergency_stop → 큐 위임 |
+| 10 | `TestCommandReceivedQueueDelegation::test_move_home_enqueued_to_cmd_queue` | ✅ | Rule 7: move_home → 큐 위임 |
+| 11 | `TestCommandReceivedQueueDelegation::test_gripper_open_enqueued` | ✅ | Rule 7: gripper_open → 큐 위임 |
+| 12 | `TestCommandReceivedQueueDelegation::test_gripper_close_enqueued` | ✅ | Rule 7: gripper_close → 큐 위임 |
+| 13 | `TestCommandReceivedQueueDelegation::test_gripper_full_open_enqueued` | ✅ | Rule 7: gripper_full_open → 큐 위임 |
+| 14 | `TestCommandReceivedQueueDelegation::test_unknown_command_enqueued` | ✅ | 알 수 없는 명령도 큐 위임 |
+| 15 | `TestCommandReceivedQueueDelegation::test_pause_converts_to_pause_stop_in_queue` | ✅ | pause는 "pause_stop"으로 변환 |
+| 16 | `TestCommandReceivedQueueDelegation::test_resume_does_not_enqueue_to_cmd_queue` | ✅ | resume은 즉시 처리, 큐 비삽입 |
+| 17 | `TestOrderReceived::test_first_order_enqueued` | ✅ | 첫 주문 → _order_queue 적재 |
+| 18 | `TestOrderReceived::test_duplicate_order_not_enqueued` | ✅ | 동일 key 두 번 → 큐에 1개만 |
+| 19 | `TestOrderReceived::test_different_orders_both_enqueued` | ✅ | 다른 key 두 주문 → 큐에 2개 |
+| 20 | `TestOrderReceived::test_order_marked_processed_after_receive` | ✅ | 수신 즉시 processed 마킹 |
+| 21 | `TestOrderReceived::test_concurrent_order_deduplication` | ✅ | 10 스레드 동시 수신 → 1건만 적재 |
+| 22 | `TestRosOrderMsg::test_valid_json_order_enqueued` | ✅ | 유효한 JSON → 큐 적재 |
+| 23 | `TestRosOrderMsg::test_invalid_json_does_not_raise` | ✅ | 잘못된 JSON → 예외 없음 |
+| 24 | `TestRosOrderMsg::test_empty_key_order_not_enqueued` | ✅ | key="" 주문 → 큐 비적재 |
+| 25 | `TestRosOrderMsg::test_missing_key_field_not_enqueued` | ✅ | _key 필드 없음 → 큐 비적재 |
+| 26 | `TestRosOrderMsg::test_ros_order_sub_dishes_parsed_correctly` | ✅ | sub_dishes 목록 파싱 정확성 |
 
-### test_state_manager.py (28/28 PASS)
+### test_state_manager.py (57/57 PASS)
 
 | # | 테스트명 | 결과 | 검증 내용 |
 |---|---------|:----:|-----------|
@@ -290,8 +361,8 @@ collected 92 items
 | 15 | `TestResetProgress::test_resets_all_fields` | ✅ | progress/step_index/log 완전 초기화 |
 | 16 | `TestTick::test_tick_increases_step_index` | ✅ | tick() → step_index +1 |
 | 17 | `TestTick::test_tick_calculates_progress_pct` | ✅ | 10단계 중 5 완료 → progress=50% |
-| 18 | `TestTick::test_tick_caps_at_99` | ✅ | 완료 직전까지 최대 99% (100% 방지) |
-| 19 | `TestTick::test_tick_does_not_exceed_total` | ✅ | 초과 tick 시 step_index ≤ total_steps |
+| 18 | `TestTick::test_tick_caps_at_99` | ✅ | 완료 직전까지 최대 99% |
+| 19 | `TestTick::test_tick_does_not_exceed_total` | ✅ | step_index ≤ total_steps |
 | 20 | `TestEmergencyStop::test_trigger_sets_event` | ✅ | trigger_emergency_stop() → 이벤트 set |
 | 21 | `TestEmergencyStop::test_trigger_changes_state_to_emergency` | ✅ | 상태 → EMERGENCY_STOP |
 | 22 | `TestEmergencyStop::test_clear_unsets_event` | ✅ | clear_emergency_stop() → 이벤트 clear |
@@ -306,41 +377,50 @@ collected 92 items
 | 31 | `TestGetStatusDict::test_state_is_string` | ✅ | state 값이 str |
 | 32 | `TestGetStatusDict::test_step_log_is_list_of_strings` | ✅ | step_log가 문자열 리스트 |
 | 33 | `TestGetStatusDict::test_joint_pos_is_list` | ✅ | joint_pos가 리스트 |
+| 34 | `TestGetStatusDict::test_collision_reflects_true_when_set` | ✅ | collision_detected=True 반영 |
+| 35 | `TestGetStatusDict::test_gripper_value_is_string` | ✅ | gripper 값이 str |
+| 36 | `TestGetStatusDict::test_last_update_is_float` | ✅ | last_update가 float |
+| 37 | `TestGetStatusDict::test_step_log_empty_initially` | ✅ | 초기 step_log=[] |
+| 38 | `TestPauseResume::test_initial_not_paused` | ✅ | 초기 is_paused() = False |
+| 39 | `TestPauseResume::test_set_pause_makes_is_paused_true` | ✅ | set_pause() 후 is_paused = True |
+| 40 | `TestPauseResume::test_clear_pause_makes_is_paused_false` | ✅ | clear_pause() 후 is_paused = False |
+| 41 | `TestPauseResume::test_clear_pause_without_set_is_safe` | ✅ | set 없이 clear 해도 예외 없음 |
+| 42 | `TestPauseResume::test_wait_if_paused_does_not_block_when_not_paused` | ✅ | 미정지 시 즉시 반환 |
+| 43 | `TestPauseResume::test_wait_if_paused_unblocks_after_clear` | ✅ | clear 후 블로킹 스레드 재개 |
+| 44 | `TestPauseResume::test_pause_resume_cycle` | ✅ | 3회 반복 pause/clear 정상 동작 |
+| 45 | `TestEnumValues::test_robot_state_idle_value` | ✅ | RobotState.IDLE.value = "idle" |
+| 46 | `TestEnumValues::test_robot_state_moving_value` | ✅ | RobotState.MOVING.value = "moving" |
+| 47 | `TestEnumValues::test_robot_state_processing_value` | ✅ | RobotState.PROCESSING.value = "processing" |
+| 48 | `TestEnumValues::test_robot_state_error_value` | ✅ | RobotState.ERROR.value = "error" |
+| 49 | `TestEnumValues::test_robot_state_emergency_stop_value` | ✅ | RobotState.EMERGENCY_STOP.value = "emergency_stop" |
+| 50 | `TestEnumValues::test_robot_state_has_5_members` | ✅ | RobotState 멤버 수 = 5 |
+| 51 | `TestEnumValues::test_gripper_width_mm5_value` | ✅ | GripperWidth.MM5.value = "5mm" |
+| 52 | `TestEnumValues::test_gripper_width_mm100_value` | ✅ | GripperWidth.MM100.value = "100mm" |
+| 53 | `TestEnumValues::test_gripper_width_has_5_members` | ✅ | GripperWidth 멤버 수 = 5 |
+| 54 | `TestRobotStatusDefaults::test_default_gripper_is_mm100` | ✅ | 초기 그리퍼 = MM100 |
+| 55 | `TestRobotStatusDefaults::test_default_joint_pos_is_6_zeros` | ✅ | 초기 joint_pos = [0.0]*6 |
+| 56 | `TestRobotStatusDefaults::test_default_current_task` | ✅ | 초기 current_task = "대기 중" |
+| 57 | `TestRobotStatusDefaults::test_default_collision_false` | ✅ | 초기 collision_detected = False |
+| 58 | `TestRobotStatusDefaults::test_update_gripper_via_update_status` | ✅ | update_status로 gripper 변경 |
+| 59 | `TestRobotStatusDefaults::test_update_joint_pos` | ✅ | update_status로 joint_pos 변경 |
+| 60 | `TestStepLogDataclass::test_step_log_has_timestamp` | ✅ | StepLog.timestamp가 양수 float |
+| 61 | `TestStepLogDataclass::test_step_log_completed_field` | ✅ | completed=True 필드 저장 |
+| 62 | `TestStepLogDataclass::test_step_log_in_progress_field` | ✅ | completed=False 필드 저장 |
+| 63 | `TestStepLogDataclass::test_step_log_thread_safe_add` | ✅ | 30개 스레드 동시 추가 충돌 없음 |
 
 ---
 
-## 7. 중간 실패 → 수정 이력
+## 7. 2026-05-09 변경 이력 (API 업데이트 반영)
 
-초기 작성 시 6개 테스트가 실패했습니다. 실패 원인을 분석하고 모두 수정했습니다.
+소스 코드 변경으로 인해 기존 테스트 일부를 수정하고 새 테스트를 추가했습니다.
 
-### 실패 원인 1: DSR Rule 7 — 실제 코드와 테스트 가정 불일치 (5개)
-
-테스트 최초 작성 시 `_handle_command("gripper_open")`이 `set_gripper()`를 직접 호출한다고 가정했으나,  
-실제 코드는 **Rule 7**(DSR API는 작업 스레드에서만 호출)에 따라 `_cmd_queue.put()`으로 위임하는 구조였습니다.
-
-```python
-# 실제 코드 (_handle_command)
-elif cmd_type in ("move_home", "gripper_open", "gripper_close", "gripper_full_open"):
-    self._cmd_queue.put(cmd_type)  # 작업 스레드에 위임
-
-# _execute_cmd (작업 스레드 내부에서 호출)
-elif cmd_type == "gripper_open":
-    self.rc.set_gripper(50)  # 여기서만 DSR API 호출
-```
-
-| 실패 테스트 | 수정 내용 |
-|------------|-----------|
-| `test_gripper_open_sets_50mm` | `rc.set_gripper(50)` 검증 → `_cmd_queue`에 "gripper_open" 삽입 검증으로 변경 |
-| `test_gripper_close_sets_5mm` | 동일 |
-| `test_gripper_full_open_sets_100mm` | 동일 |
-| `test_do_movej_called_with_home_coords` | `do_movej()` 직접 호출 검증 → 큐 삽입 검증으로 변경 |
-| `test_state_moving_during_command` | 상태 변경이 작업 스레드 담당임을 반영하여 테스트 목적 변경 |
-
-### 실패 원인 2: 존재하지 않는 속성 참조 (1개)
-
-| 실패 테스트 | 원인 | 수정 내용 |
-|------------|------|-----------|
-| `test_available_property_is_true` | `MockOrderRepository`에 `available` 속성 없음 | 해당 테스트 제거 |
+| 파일 | 변경 내용 |
+|------|----------|
+| `conftest.py` | `dsr_msgs2`, `dsr_msgs2.srv` stub 추가 |
+| `test_robot_client.py` | `inject()` 시그니처 업데이트 (get_tool_force/get_external_torque 추가), vel/acc 기본값 50으로 수정, radius 파라미터 반영, 신규 14개 테스트 추가 |
+| `test_robot_controller.py` | `_handle_command` → `_on_command_received` API 전환, pause/resume/cmd_queue 위임 테스트 전면 재작성, ROS 메시지 파싱 테스트 추가 |
+| `test_state_manager.py` | 일시정지·열거형·데이터클래스·기본값 테스트 29개 추가 |
+| `test_order_model.py` | 신규 파일: Order 도메인 객체 및 OrderRepository 인터페이스 21개 테스트 |
 
 ---
 
@@ -348,12 +428,12 @@ elif cmd_type == "gripper_open":
 
 | 모듈 | 커버 여부 | 미커버 범위 |
 |------|:---------:|-----------|
-| `robot_client.py` | ✅ 주요 경로 전체 | - |
+| `robot_client.py` | ✅ 전체 공개 API | - |
 | `state_manager.py` | ✅ 전체 | - |
 | `mock_order_repository.py` | ✅ 전체 | - |
-| `robot_controller.py` | ✅ _handle_command, _execute_cmd, _on_order_received | _task_loop, _status_upload_loop, _collision_monitor_loop (스레드 루프) |
-| `stages/base_stage.py` | ❌ | 통합 테스트 필요 |
-| `stages/stages.py` | ❌ | 통합 테스트 필요 |
+| `order_repository.py` (Order/ABC) | ✅ 전체 | - |
+| `robot_controller.py` | ✅ 명령·주문 수신 경로 | _task_loop, _status_upload_loop, _collision_monitor_loop (스레드 루프) |
+| `stages/*.py` | ❌ | 통합 테스트 필요 |
 | `coordinate_manager.py` | ❌ | YAML 파일 의존 |
 | `lunchbox_robot_node.py` | ❌ | ROS2 노드 생성 필요 |
 

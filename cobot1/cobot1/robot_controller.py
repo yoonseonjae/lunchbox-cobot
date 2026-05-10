@@ -75,6 +75,11 @@ class RobotController:
         self._t_monitor: Optional[threading.Thread] = None
 
     def start(self) -> bool:
+        """ROS2 스핀·작업·상태업로드·충돌감지 스레드를 모두 시작하고 초기화 완료를 기다린다.
+
+        Returns:
+            bool: 초기화(홈 이동 포함) 성공 시 True, 타임아웃 또는 실패 시 False.
+        """
         self._running.set()
         self._t_spin = threading.Thread(target=self._ros_spin_loop, name="ros_spin", daemon=False)
         self._t_spin.start()
@@ -107,14 +112,31 @@ class RobotController:
         return True
 
     def join(self) -> None:
+        """작업 스레드와 ROS 스핀 스레드가 종료될 때까지 블로킹 대기한다.
+
+        Returns:
+            None
+        """
         if self._t_task: self._t_task.join()
         if self._t_spin: self._t_spin.join()
 
     def stop(self) -> None:
+        """실행 플래그를 해제하고 rclpy를 종료해 모든 루프를 중단시킨다.
+
+        Returns:
+            None
+        """
         self._running.clear()
         if rclpy.ok(): rclpy.shutdown()
 
     def _on_ros_order_msg(self, msg: String) -> None:
+        """'/robot_order' ROS 토픽 콜백 — JSON 문자열을 Order 객체로 파싱해 큐에 적재한다.
+
+        Args:
+            msg (String): JSON 형식의 주문 데이터 ({_key, sub_dishes, main_dish}).
+        Returns:
+            None
+        """
         try:
             data = json.loads(msg.data)
             order = Order(
@@ -128,12 +150,26 @@ class RobotController:
             self.node.get_logger().error(f"/robot_order 파싱 오류: {e}")
 
     def _on_order_received(self, order: Order) -> None:
+        """중복 수신을 방지하며 Order를 처리 큐에 삽입한다.
+
+        Args:
+            order (Order): 수신된 주문 객체.
+        Returns:
+            None  (이미 처리된 key면 즉시 반환)
+        """
         if self.sm.is_order_processed(order.key): return
         self.sm.mark_order_processed(order.key)
         self._order_queue.put(order)
         self.node.get_logger().info(f"주문 큐 추가: {order.key}")
 
     def _on_command_received(self, cmd_type: str) -> None:
+        """Firebase 명령 콜백 — pause/resume은 즉시 처리하고 나머지는 작업 스레드(cmd_queue)에 위임한다.
+
+        Args:
+            cmd_type (str): 명령 문자열 (예: 'pause', 'resume', 'emergency_stop', 'move_home' 등).
+        Returns:
+            None
+        """
         self.node.get_logger().info(f"명령 수신: {cmd_type}")
         # pause/resume 플래그는 즉시 세팅해야 진행 중인 스테이지가 wait_if_paused()에서 멈춤.
         # do_stop() 등 rclpy spin을 유발하는 호출은 _cmd_queue로 task 스레드에 위임.
@@ -151,6 +187,13 @@ class RobotController:
 
     # ── 테스트 모드 ───────────────────────────────────────────────
     def _on_test_command_received(self, payload: dict) -> None:
+        """테스트 전용 커맨드 콜백 — 초기화 완료 후 테스트 시나리오를 주문 큐에 삽입한다.
+
+        Args:
+            payload (dict): 시나리오 정보 (scenario, repeat, stage_from, stage_to, main_dish, sub_dishes).
+        Returns:
+            None
+        """
         self._init_event.wait()
         if not self._init_ok:
             self.node.get_logger().warn("테스트 커맨드 무시: 초기화 실패 상태")
@@ -159,6 +202,13 @@ class RobotController:
         self._order_queue.put(("__test__", payload))
 
     def _run_test_scenario(self, payload: dict) -> None:
+        """payload에 명시된 시나리오를 repeat 횟수만큼 반복 실행한다.
+
+        Args:
+            payload (dict): {scenario, repeat, stage_from, stage_to, main_dish, sub_dishes}.
+        Returns:
+            None  (중단 또는 오류 시 홈 복귀 후 IDLE 상태로 전환)
+        """
         scenario    = payload.get("scenario", "stage_only")
         repeat      = max(1, int(payload.get("repeat", 1)))
         stage_from  = int(payload.get("stage_from", 1))
@@ -241,6 +291,15 @@ class RobotController:
         self.sm.update_status(state=RobotState.IDLE, current_task="대기 중")
 
     def _process_test_stages(self, order: Order, stage_from: int, stage_to: int) -> None:
+        """stage_from~stage_to 범위의 스테이지만 선택적으로 실행한다.
+
+        Args:
+            order (Order): 실행할 주문 객체 (sub_dishes, main_dish 포함).
+            stage_from (int): 시작 스테이지 번호 (1~5).
+            stage_to (int): 종료 스테이지 번호 (1~5).
+        Returns:
+            None  (실패 시 RuntimeError 발생)
+        """
         valid_subs = [d for d in order.sub_dishes[:4] if d in self.cm.available_sub_dishes()]
 
         def should_run(n):
@@ -274,7 +333,13 @@ class RobotController:
             if result != StageResult.SUCCESS: raise RuntimeError(f"Stage5 실패")
 
     def _run_tong_pick_place(self) -> None:
-        """집게 집기 → 집게 내려놓기만 수행 (Stage3 부분 모션)."""
+        """집게를 집어 들고 다시 원위치에 내려놓는 동작만 수행한다 (Stage3 부분 모션 검증용).
+
+        Args:
+            없음
+        Returns:
+            None
+        """
         c3   = self.cm.stage(3)
         home = self.cm.home_joint()
         self.sm.update_status(current_task="🧪 집게 Pick & Place")
@@ -289,12 +354,25 @@ class RobotController:
         self.rc.do_movej(home)
 
     def _run_main_dish_full(self, main_dish: str) -> None:
-        """집게 집기 ~ 메인반찬 집기 ~ 식판 투하 ~ 집게 복귀 전체."""
+        """집게 집기부터 메인반찬 담기, 식판 투하, 집게 복귀까지 Stage3 전체를 실행한다.
+
+        Args:
+            main_dish (str): 담을 메인반찬 이름 (예: '돈까스').
+        Returns:
+            None  (실패 시 RuntimeError 발생)
+        """
         result = MainDishStage(self.sm, self.rc, self.cm, main_dish).execute()
         if result != StageResult.SUCCESS:
             raise RuntimeError("Main dish 테스트 실패")
 
     def _process_order(self, order: Order) -> None:
+        """단일 주문을 Stage 1~5 순서로 실행하고 완료/오류 상태를 Firebase에 반영한다.
+
+        Args:
+            order (Order): 처리할 주문 객체 (key, sub_dishes, main_dish, target_stage, run_mode).
+        Returns:
+            None  (충돌·예외 발생 시 mark_error 후 last_failed_order에 보존)
+        """
         key = order.key
         self.node.get_logger().info(f"===== 주문 시작: {key} =====")
         valid_subs = [d for d in order.sub_dishes[:4] if d in self.cm.available_sub_dishes()]
@@ -384,6 +462,15 @@ class RobotController:
             self.sm.update_status(state=RobotState.ERROR, current_task=f"오류: {e}")
 
     def _execute_cmd(self, cmd_type: str) -> None:
+        """작업 스레드에서 cmd_queue 아이템을 꺼내 해당 동작을 직접 실행한다 (DSR Rule 7).
+
+        Args:
+            cmd_type (str): 실행할 명령 문자열
+                (emergency_stop | pause_stop | reset_and_restart |
+                 test_cancel | move_home | gripper_open | gripper_close | gripper_full_open).
+        Returns:
+            None
+        """
         if cmd_type == "emergency_stop":
             self.rc.do_stop()
             self.sm.trigger_emergency_stop()
@@ -426,6 +513,13 @@ class RobotController:
             self.rc.set_gripper(100)
 
     def _task_loop(self) -> None:
+        """홈 이동 초기화 후 주문 큐와 명령 큐를 순환 처리하는 메인 작업 스레드 루프.
+
+        Args:
+            없음  (self._order_queue, self._cmd_queue를 내부적으로 소비)
+        Returns:
+            None  (rclpy 종료 또는 _running 해제 시 자동 탈출)
+        """
         self.node.get_logger().info("홈 위치 초기화 중...")
         try:
             from DSR_ROBOT2 import set_tool, set_tcp
@@ -464,6 +558,13 @@ class RobotController:
                 time.sleep(TASK_ERROR_RETRY_SEC)
 
     def _ros_spin_loop(self) -> None:
+        """MultiThreadedExecutor로 ROS2 콜백을 전담 처리하는 스핀 스레드.
+
+        Args:
+            없음
+        Returns:
+            None  (rclpy 종료 시 자동 탈출)
+        """
         self.node.get_logger().info("spin 스레드 시작")
         try:
             executor = MultiThreadedExecutor(num_threads=ROS_EXECUTOR_THREADS)
@@ -473,6 +574,13 @@ class RobotController:
             if rclpy.ok(): self.node.get_logger().error(f"spin 오류: {e}")
 
     def _status_upload_loop(self) -> None:
+        """1초 주기로 로봇 상태를 Firebase에 업로드하는 데몬 스레드.
+
+        Args:
+            없음  (sm.get_status_dict()로 상태를 수집, pause/collision 오버라이드 포함)
+        Returns:
+            None  (rclpy 종료 또는 _running 해제 시 자동 탈출)
+        """
         while rclpy.ok() and self._running.is_set():
             try:
                 payload = self.sm.get_status_dict()
@@ -490,6 +598,13 @@ class RobotController:
             time.sleep(STATUS_UPLOAD_INTERVAL_SEC)
 
     def _collision_monitor_loop(self) -> None:
+        """0.3초 주기로 DSR 상태·TCP 힘·외부 토크를 감시하고 충돌 시 비상정지를 발동한다.
+
+        Args:
+            없음  (COLLISION_THRESHOLD=80Nm, FORCE_THRESHOLD=80N, FORCE_Z_THRESHOLD=60N 기준)
+        Returns:
+            None  (충돌 해제 후 홈 복귀 → _in_collision 플래그 초기화)
+        """
         _in_collision = False
         COLLISION_THRESHOLD = 80.0
         FORCE_THRESHOLD     = 80.0

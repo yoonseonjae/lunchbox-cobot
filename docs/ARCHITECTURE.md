@@ -1,9 +1,10 @@
 # cobot1 패키지 아키텍처 분석 문서
 
 **작성일**: 2026년 5월 8일  
+**최종 수정**: 2026년 5월 10일  
 **패키지**: `src/cobot1/` — 나만의 도련님 도시락 로봇 제어 시스템  
 **로봇**: Doosan M0609 / ROS2 Humble  
-**브랜치**: `ksw_develop`
+**브랜치**: `main`
 
 ---
 
@@ -45,15 +46,20 @@ FirebaseOrderRepository ── listen_orders() ──▶ RobotController._on_ord
 ```
 src/cobot1/cobot1/
 ├── lunchbox_robot_node.py       # 진입점 — 모든 컴포넌트 조립
-├── robot_controller.py          # 스레드 통합 + 주문/명령 처리
+├── lunchbox_database_node.py    # Firebase 전용 데이터베이스 노드 (독립 실행)
+├── robot_controller.py          # 스레드 통합 + 주문/명령/테스트 처리
 ├── robot_client.py              # DSR API 래퍼 (유일한 DSR 호출 계층)
-├── state_manager.py             # 중앙 상태 관리 (스레드 안전)
+├── state_manager.py             # 중앙 상태 관리 (스레드 안전, 일시정지 지원)
 ├── coordinate_manager.py        # YAML 좌표 로드 및 제공
+├── camera_stream_server.py      # 카메라 영상 스트림 HTTP 서버
+├── robot_dashboard.py           # 로봇 상태 대시보드 (CLI)
+├── mini_jog.py                  # 수동 조그 유틸리티
+├── move_basic.py                # 기본 이동 테스트 스크립트
 ├── stages/
 │   ├── base_stage.py            # 스테이지 추상 기본 클래스
 │   └── stages.py                # 5개 스테이지 구현체
 ├── repositories/
-│   ├── order_repository.py      # OrderRepository 인터페이스
+│   ├── order_repository.py      # OrderRepository 인터페이스 + Order 데이터클래스
 │   ├── firebase_order_repository.py  # Firebase 구현체
 │   └── mock_order_repository.py      # 테스트용 인메모리 구현체
 └── config/
@@ -117,10 +123,10 @@ main()
 
 | 스레드명 | daemon | 역할 | DSR 호출 |
 |---------|:------:|------|:--------:|
-| `ros_spin` | False | ROS2 executor.spin() | ❌ |
-| `task` | False | 주문 처리 + Stage 실행 + DSR 초기화 | ✅ (유일) |
-| `status_upload` | True | 1초 주기 Firebase 상태 업로드 | ❌ |
-| `collision_monitor` | True | 0.5초 주기 로봇 충돌 상태 감시 | ❌ |
+| `ros_spin` | False | ROS2 MultiThreadedExecutor.spin() (4 threads) | ❌ |
+| `task` | False | 주문 처리 + Stage 실행 + DSR 초기화 + 테스트 시나리오 | ✅ (유일) |
+| `status_upload` | True | 1초 주기 Firebase 상태 업로드 (pause/collision 상태 오버라이드) | ❌ |
+| `collision_monitor` | True | 0.3초 주기 외력/토크 기반 충돌 감지 | ❌ |
 
 #### 초기화 시퀀스
 
@@ -145,24 +151,47 @@ start()
 
 ```
 Firebase 콜백 스레드
-  _on_command_received("gripper_open")
+  _on_command_received("pause")
       │
       ▼
-  _handle_command("gripper_open")
+  _handle_command("pause")
       │
-      ├─ "emergency_stop" → rc.do_stop() 즉시 실행 (안전 우선)
+      ├─ "pause"          → sm.set_pause() 즉시 세팅 + _cmd_queue.put("pause_stop")
+      │                     (스테이지가 wait_if_paused()에서 즉시 블로킹됨)
       │
-      └─ "move_home" / "gripper_*"
+      ├─ "resume"         → sm.clear_pause() + sm.clear_emergency_stop() [즉시]
+      │
+      ├─ "emergency_stop" → _cmd_queue.put("emergency_stop")
+      │
+      └─ 나머지 명령들
               │
               ▼
-         _cmd_queue.put("gripper_open")  ← 큐에만 삽입
+         _cmd_queue.put(cmd_type)  ← 큐에만 삽입
               │
               ▼ (task 스레드가 꺼냄)
-         _execute_cmd("gripper_open")
+         _execute_cmd(cmd_type)
               │
-              ▼
-         rc.set_gripper(50)  ← 작업 스레드에서만 DSR 호출
+              ├─ "emergency_stop"    → rc.do_stop() + sm.trigger_emergency_stop()
+              ├─ "pause_stop"        → rc.do_stop()
+              ├─ "reset_and_restart" → SetRobotControl 서비스 호출 + 주문 큐 재삽입
+              ├─ "test_cancel"       → _test_cancel.set() + rc.do_stop()
+              ├─ "move_home"         → rc.do_movej(home)
+              └─ "gripper_*"         → rc.set_gripper(...)
 ```
+
+**지원 명령 목록** (Firebase `/command` 경유):
+
+| 명령 | 처리 방식 | 동작 |
+|------|----------|------|
+| `emergency_stop` | 큐 위임 | `do_stop()` + 비상정지 상태 |
+| `pause` | 즉시 플래그 + 큐(`pause_stop`) | 일시정지 + `do_stop()` |
+| `resume` | 즉시 | 일시정지/비상정지 해제 |
+| `reset_and_restart` | 큐 위임 | 하드웨어 복구 서비스 + 주문 재시작 |
+| `move_home` | 큐 위임 | 홈 이동 |
+| `gripper_open` | 큐 위임 | 그리퍼 50mm |
+| `gripper_close` | 큐 위임 | 그리퍼 5mm |
+| `gripper_full_open` | 큐 위임 | 그리퍼 100mm |
+| `test_cancel` | 큐 위임 | 테스트 시나리오 중단 |
 
 ---
 
@@ -170,6 +199,44 @@ Firebase 콜백 스레드
 
 **역할**: DSR_ROBOT2 함수를 직접 호출하는 **유일한 계층**  
 **설계 원칙**: 의존성 주입(inject)으로 DSR 함수 수신 → 테스트 가능성 확보
+
+#### inject() 주입 인자 전체 목록
+
+| 인자 | DSR 함수 | 용도 |
+|------|---------|------|
+| `movej` | `movej` | 관절 동기 이동 |
+| `movel` | `movel` | 직선 동기 이동 |
+| `mwait` | `mwait` | 모션 완료 대기 |
+| `amovej` | `amovej` | 관절 비동기 이동 |
+| `amovel` | `amovel` | 직선 비동기 이동 |
+| `set_digital_output` | `set_digital_output` | 그리퍼 DO 핀 제어 |
+| `get_digital_input` | `get_digital_input` | 그리퍼 DI 핀 읽기 |
+| `wait` | `wait` | DSR 대기 |
+| `drl_script_stop` | `drl_script_stop` | 스크립트 정지 |
+| `check_motion` | `check_motion` | 모션 상태 확인 |
+| `move_stop` | `move_stop` | 로봇 정지 |
+| `get_robot_state` | `get_robot_state` | 로봇 상태 조회 |
+| `get_tool_force` | `get_tool_force` | 툴 외력 벡터 조회 (충돌 감지용) |
+| `get_external_torque` | `get_external_torque` | 외부 토크 조회 (충돌 감지용) |
+| `posj` | `posj` | 관절 좌표 생성자 |
+| `posx` | `posx` | 직선 좌표 생성자 |
+| `DR_BASE` | `DR_BASE` | 기준 좌표계 상수 |
+
+#### 주요 메서드
+
+| 메서드 | 설명 |
+|--------|------|
+| `do_movej(coords)` | 관절 이동 + mwait |
+| `do_movel(coords)` | 직선 이동 + mwait |
+| `do_amovej(coords)` | 관절 비동기 이동 (mwait 없음) |
+| `do_amovel(coords)` | 직선 비동기 이동 (mwait 없음) |
+| `set_gripper(width_mm)` | 그리퍼 DO 핀 제어 |
+| `check_grip()` | 파지 확인 (DI 핀 읽기) |
+| `get_tool_force()` | 툴 외력 6축 벡터 반환 |
+| `get_external_torque()` | 외부 토크 6축 벡터 반환 |
+| `do_stop()` | 감속 정지 (`move_stop(3)`) |
+| `get_robot_state()` | 로봇 상태 정수 반환 |
+| `wait_motion_done()` | 폴링 기반 모션 완료 대기 |
 
 #### 그리퍼 DO핀 매핑 테이블
 
@@ -197,7 +264,8 @@ def wait_motion_done(self) -> bool:
 
 ### 4-4. `RobotStateManager` — 중앙 상태 관리
 
-**역할**: 모든 전역 상태를 단일 객체로 관리. `RLock` 기반 스레드 안전 보장.
+**역할**: 모든 전역 상태를 단일 객체로 관리. `RLock` 기반 스레드 안전 보장.  
+**신규**: `pause_event` (threading.Event) 기반 일시정지 메커니즘 추가.
 
 #### 상태 전이 다이어그램
 
@@ -210,8 +278,12 @@ def wait_motion_done(self) -> bool:
         수신  │                   │
               ▼                   ▼
          ┌──────────┐      ┌──────────────────┐
-         │  MOVING  │      │  EMERGENCY_STOP  │
-         └────┬─────┘      └──────────────────┘
+         │  MOVING  │──────│  EMERGENCY_STOP  │
+         └────┬─────┘pause └──────────────────┘
+              │   ↕ resume
+              │  [PAUSED: pause_event.clear()]   ← RobotState enum 외부,
+              │   스테이지는 wait_if_paused()에서   상태 업로드 시 'paused' 오버라이드
+              │   블로킹. resume 시 재개.
               │
         stage │ 실행 중
               ▼
@@ -236,8 +308,24 @@ class RobotStatus:
     progress:     int           # 진행률 0~100% (완료 전 최대 99%)
     step_index:   int           # 현재 스텝 번호
     total_steps:  int           # 전체 스텝 수
+    current_step: str           # 현재 스텝 이름/레이블
     step_log:     List[StepLog] # 최근 20개 단계 로그
+    last_update:  float         # 마지막 업데이트 타임스탬프
     collision_detected: bool    # 충돌 감지 여부
+```
+
+#### 일시정지 메커니즘
+
+```python
+# 일시정지: pause_event.clear() → 스테이지 내 wait_if_paused()가 블로킹
+sm.set_pause()          # pause_event.clear()
+sm.clear_pause()        # pause_event.set()
+sm.is_paused()          # not pause_event.is_set()
+sm.wait_if_paused()     # pause_event.wait()  ← 스테이지 루프에서 호출
+
+# 상태 업로드 시 오버라이드
+if sm.is_paused():      payload['state'] = 'paused'
+elif sm.is_stopped():   payload['state'] = 'collision'
 ```
 
 ---
@@ -283,6 +371,20 @@ def execute(self) -> StageResult:
 
 **역할**: 주문 저장소를 인터페이스로 추상화 → Firebase / Mock 교체 가능
 
+#### `Order` 데이터클래스
+
+```python
+@dataclass
+class Order:
+    key:          str           # Firebase /orders/{key}
+    sub_dishes:   List[str]     # 서브 반찬 목록 (최대 4종)
+    main_dish:    str           # 메인 반찬
+    target_stage: int = 0       # 시작 스테이지 (0 = 처음부터)
+    run_mode:     str = "from"  # "from" = target_stage부터 끝까지
+                                # "only" = target_stage만 실행
+    status:       str = "pending"
+```
+
 ```
 OrderRepository (ABC)
  ├─ listen_orders(callback)
@@ -297,6 +399,38 @@ OrderRepository (ABC)
 ```
 
 `RobotController`는 `OrderRepository` 인터페이스만 알고 있어, Firebase 없이도 동일한 코드로 실행됩니다.
+
+---
+
+### 4-7. 테스트 모드
+
+**역할**: Firebase `/test_command` 경로를 통해 특정 스테이지 또는 시나리오를 독립 실행
+
+#### 테스트 시나리오 목록
+
+| 시나리오 | 메서드 | 설명 |
+|----------|--------|------|
+| `stage_only` | `_process_test_stages()` | `stage_from` ~ `stage_to` 범위 스테이지 실행 |
+| `tong_pick_place` | `_run_tong_pick_place()` | 집게 집기 → 내려놓기만 수행 (Stage3 부분) |
+| `main_dish_full` | `_run_main_dish_full()` | MainDishStage 전체 실행 |
+| `rice_full` | `_process_test_stages()` | Stage4(밥) 단독 실행 |
+| `delivery_full` | `_process_test_stages()` | Stage5(배달) 단독 실행 |
+
+#### 테스트 페이로드 구조
+
+```json
+{
+  "scenario":   "stage_only",
+  "repeat":     1,
+  "stage_from": 1,
+  "stage_to":   5,
+  "main_dish":  "돈까스",
+  "sub_dishes": ["피클", "단무지", "김치"]
+}
+```
+
+- `test_cancel` 명령으로 진행 중인 테스트 중단 → 홈 복귀
+- `_test_cancel` (threading.Event)로 루프 내 폴링 방식 취소 처리
 
 ---
 
@@ -315,8 +449,9 @@ OrderRepository (ABC)
 |----------|------|------|
 | 초기화 (`set_tool`, `set_tcp`, `do_movej(home)`) | `_task_loop()` 첫 부분에서만 실행 | Rule 7 |
 | 주문 처리 중 이동 | `_task_loop()` → `_process_order()` → Stage | Rule 7 |
-| 웹 명령 (`move_home`, `gripper_*`) | `_cmd_queue.put()` → task thread가 소비 | Rule 7 |
-| 비상정지 (`emergency_stop`) | 예외적으로 즉시 실행 (`do_stop`) | 안전 우선 |
+| 웹 명령 (`move_home`, `gripper_*`, `emergency_stop`, 등) | `_cmd_queue.put()` → task thread가 소비 | Rule 7 |
+| 일시정지 플래그 (`pause`, `resume`) | 예외적으로 즉시 `pause_event` 조작 | 스테이지 즉시 블로킹 필요 |
+| 비상정지 실제 정지 (`do_stop`) | `pause_stop` 큐 경유 → task thread 실행 | Rule 7 |
 
 ---
 
@@ -396,9 +531,10 @@ FirebaseOrderRepository 콜백
 RobotController._on_command_received(cmd)
          │
 _handle_command(cmd)
-    ├─ "emergency_stop" → rc.do_stop() + sm.trigger_emergency_stop()  [즉시]
-    ├─ "resume"         → sm.clear_emergency_stop()                   [즉시]
-    └─ "move_home" / "gripper_*" → _cmd_queue.put(cmd)               [위임]
+    ├─ "pause"          → sm.set_pause() + sm.update_status("⏸️ 일시 정지됨") [즉시]
+    │                     + _cmd_queue.put("pause_stop")
+    ├─ "resume"         → sm.clear_pause() + sm.clear_emergency_stop()             [즉시]
+    └─ "move_home" / "gripper_*" / "emergency_stop" / 나머지 → _cmd_queue.put(cmd)  [위임]
                                           │
                                task_thread._execute_cmd(cmd)
                                           │
@@ -407,7 +543,29 @@ _handle_command(cmd)
 
 ---
 
-## 9. 설계 강점과 개선 여지
+## 9. 충돌 감지 메커니즘
+
+`_collision_monitor_loop`는 0.3초마다 외력/토크를 측정하여 임계값 초과 시 비상정지를 트리거합니다.
+
+| 파라미터 | 임계값 | 설명 |
+|----------|--------|------|
+| `COLLISION_THRESHOLD` | 80.0 | 로봇 상태값 기반 임계 |
+| `FORCE_THRESHOLD` | 80.0 N | `get_tool_force()` XYZ 합산 |
+| `FORCE_Z_THRESHOLD` | 60.0 N | Z축 외력 단독 |
+
+```
+_collision_monitor_loop (0.3초 주기)
+    │
+    ├─ rc.get_robot_state() ∈ {3,5,6,7} (collision states)
+    │   └─ sm.trigger_emergency_stop() + Firebase 'collision' 상태 업로드
+    │
+    └─ rc.get_tool_force() 또는 get_external_torque() 임계값 초과
+        └─ sm.trigger_emergency_stop() + last_failed_order 보존
+```
+
+---
+
+## 10. 설계 강점과 개선 여지
 
 ### 강점
 
@@ -415,24 +573,24 @@ _handle_command(cmd)
 |------|------|
 | 의존성 역전 | `OrderRepository` 인터페이스로 Firebase/Mock 교체 자유 |
 | 의존성 주입 | `RobotClient.inject()`로 DSR 함수 주입 → 단위 테스트 가능 |
-| 스레드 안전 | `RLock` 기반 상태 관리, `threading.Event` 기반 초기화 동기화 |
+| 스레드 안전 | `RLock` 기반 상태 관리, `threading.Event` 기반 초기화/일시정지 동기화 |
 | Rule 7 준수 | 모든 DSR 호출을 작업 스레드에 격리 |
-| 단계별 중단 | 비상정지 시 `_movej()` → `False` → `STOPPED` 즉시 반환 |
+| 일시정지/재개 | `pause_event` 기반 → 스테이지 루프 내 `wait_if_paused()`로 즉시 블로킹 |
+| 충돌 복구 | `reset_and_restart` 명령으로 하드웨어 복구 + 실패 주문 1단계부터 재시작 |
+| 외력 감지 | `get_tool_force` / `get_external_torque` 기반 세밀한 충돌 감지 |
 | 로그 표준화 | 전체 파일 ROS2 logger 통일, 모듈별 이름 부여 |
 
 ### 개선 여지
 
 | 항목 | 현황 | 제안 |
 |------|------|------|
-| `_handle_command` vs `_execute_cmd` 이중화 | move_home/gripper 로직이 양쪽에 중복 | `_handle_command`에서 항상 큐 위임으로 통일 |
 | 스테이지 단위 테스트 | YAML 좌표 의존으로 미커버 | 좌표를 픽스처로 주입하는 구조 개선 |
-| 충돌 감지 후 처리 | 상태 업데이트만 수행 | 자동 비상정지 연동 고려 |
 | `total_steps` 하드코딩 | `8 + (7×n) + 11 + 13 + 10` | 각 Stage가 자신의 스텝 수를 선언하는 구조 |
 | 주문 타임아웃 | 무제한 대기 | 최대 처리 시간 상한 설정 |
 
 ---
 
-## 10. 테스트 커버리지 현황
+## 11. 테스트 커버리지 현황
 
 ```
 cobot1/

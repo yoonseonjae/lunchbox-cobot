@@ -76,3 +76,10 @@ std_msgs_msg = types.ModuleType("std_msgs.msg")
 std_msgs_msg.String = MagicMock()
 sys.modules.setdefault("std_msgs", std_msgs)
 sys.modules.setdefault("std_msgs.msg", std_msgs_msg)
+
+# ── dsr_msgs2 stub ───────────────────────────────────────────────────────────
+dsr_msgs2 = types.ModuleType("dsr_msgs2")
+dsr_msgs2_srv = types.ModuleType("dsr_msgs2.srv")
+dsr_msgs2_srv.SetRobotControl = MagicMock()
+sys.modules.setdefault("dsr_msgs2", dsr_msgs2)
+sys.modules.setdefault("dsr_msgs2.srv", dsr_msgs2_srv)

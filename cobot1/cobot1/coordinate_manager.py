@@ -34,6 +34,14 @@ class CoordinateManager:
     )
 
     def __init__(self, config_path: str = None):
+        """YAML 설정 파일을 로드하여 코디네이트 매니저를 초기화한다.
+
+        Args:
+            config_path (str | None): YAML 파일 절대 경로.
+                                      None이면 config/robot_coordinates.yaml 자동 탐색.
+        Raises:
+            FileNotFoundError: 파일이 존재하지 않으면.
+        """
         path = config_path or self._DEFAULT_CONFIG
         if not os.path.exists(path):
             raise FileNotFoundError(f"[CoordinateManager] 설정 파일 없음: {path}")
@@ -44,30 +52,68 @@ class CoordinateManager:
     # ── 로봇 기본 설정 ────────────────────────────────────────────
     @property
     def robot_cfg(self) -> dict:
+        """YAML robot 섹션의 전체 dict를 반환한다.
+
+        Returns:
+            dict: velocity, acceleration, tool, tcp 등이 포함된 로봇 설정 dict.
+        """
         return self._cfg["robot"]
 
     @property
     def velocity(self) -> int:
+        """YAML에 설정된 기본 이동 속도를 반환한다.
+
+        Returns:
+            int: 이동 속도 (%).
+        """
         return self.robot_cfg["velocity"]
 
     @property
     def acceleration(self) -> int:
+        """YAML에 설정된 기본 가속도를 반환한다.
+
+        Returns:
+            int: 가속도 (%).
+        """
         return self.robot_cfg["acceleration"]
 
     @property
     def tool(self) -> str:
+        """YAML에 설정된 툴 이름을 반환한다.
+
+        Returns:
+            str: 툴 이름 문자열.
+        """
         return self.robot_cfg["tool"]
 
     @property
     def tcp(self) -> str:
+        """YAML에 설정된 TCP 이름을 반환한다.
+
+        Returns:
+            str: TCP 이름 문자열.
+        """
         return self.robot_cfg["tcp"]
 
     # ── 좌표 접근 ─────────────────────────────────────────────────
     def home_joint(self) -> List[float]:
+        """YAML에 정의된 홈 자세의 관절 각도를 반환한다.
+
+        Returns:
+            List[float]: [J1~J6] 관절 각도 (deg).
+        """
         return self._cfg["coordinates"]["home"]["joint"]
 
     def stage(self, num: int) -> Dict[str, Any]:
-        """스테이지 전체 좌표 dict 반환."""
+        """지정한 스테이지의 전체 좌표 dict를 반환한다.
+
+        Args:
+            num (int): 스테이지 번호 (1~5).
+        Returns:
+            Dict[str, Any]: 해당 스테이지의 웨이포인트 좌표 dict.
+        Raises:
+            KeyError: YAML에 stage_{num}이 없으면.
+        """
         key = f"stage_{num}"
         coords = self._cfg.get("coordinates", {})
         if key not in coords:
@@ -75,14 +121,30 @@ class CoordinateManager:
         return coords[key]
 
     def sub_dish_pick(self, dish_name: str) -> Dict[str, List[float]]:
-        """선택된 반찬의 집기(Pick) 관련 좌표만 반환 (pre_pick, pick, up_pick)"""
+        """선택된 반찬의 집기(Pick) 관련 웨이포인트를 반환한다.
+
+        Args:
+            dish_name (str): 반찬 이름 (예: 피클, 단무지).
+        Returns:
+            Dict[str, List[float]]: {pre_pick_j, pick_l, up_pick_l} 좌표.
+        Raises:
+            KeyError: YAML에 등록되지 않은 반찬이면.
+        """
         dishes = self._cfg["coordinates"]["stage_2_picks"]
         if dish_name not in dishes:
             raise KeyError(f"반찬 '{dish_name}' 없음.")
         return dishes[dish_name]
 
     def sub_dish_place(self, slot_index: int) -> Dict[str, List[float]]:
-        """식판의 칸 순서(Index)에 따른 놓기(Place) 좌표 반환 (pre_place, place)"""
+        """식판 칸 순서(Index)에 따른 놓기(Place) 웨이포인트를 반환한다.
+
+        Args:
+            slot_index (int): 식판 슬롯 인덱스 (0부터 시작).
+        Returns:
+            Dict[str, List[float]]: {pre_place_j, place_l} 좌표.
+        Raises:
+            KeyError: YAML에 slot_{slot_index}가 없으면.
+        """
         # config에 slot_0, slot_1, slot_2 등으로 저장
         slots = self._cfg["coordinates"]["stage_2_places"]
         slot_key = f"slot_{slot_index}"
@@ -91,5 +153,9 @@ class CoordinateManager:
         return slots[slot_key]
     
     def available_sub_dishes(self) -> List[str]:
-        """설정 파일에 등록된 서브 반찬 이름 목록."""
+        """설정 파일에 등록된 서브 반찬 이름 목록을 반환한다.
+
+        Returns:
+            List[str]: YAML stage_2_picks 콘픽 목록.
+        """
         return list(self._cfg["coordinates"]["stage_2_picks"].keys())
