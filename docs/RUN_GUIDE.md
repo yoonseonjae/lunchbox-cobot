@@ -21,7 +21,7 @@ source install/setup.bash
 
 ```bash
 ros2 launch dsr_bringup2 dsr_bringup2_rviz.launch.py \
-    model:=m0609 mode:=real host:=192.168.1.100 port:=12345
+    model:=m0609 mode:=real host:=192.1.1.100 port:=12345
 ```
 
 **성공 로그:**
