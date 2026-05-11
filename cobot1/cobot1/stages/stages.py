@@ -199,22 +199,26 @@ class MainDishStage(BaseStage):
             if not self._movel(c3["main_dish_lift_l"],        "🍖 [3/5] 반찬 들어올림"):      return StageResult.STOPPED
 
             # ── 토크 기반 반찬 파지 여부 판별 ─────────────────────────────
-            # 집게만 잡은 경우 / 집게+돈까스 / 집게+돈까스 2개 이상 판별
-            # 판별 클래스: "집게"  → 반찬 없음 → 집게 복귀 후 재시도 없이 종료
-            #             "집게+돈까스" → 정상 1개 파지
-            #             그 외(집게류 외부) → 알 수 없음 → 정상 진행
             self._tick("🍖 [3/5] 토크 측정 중", done=False)
-            torque_cls = self._sample_torque_class(n=5, interval=0.15)
+            torque_cls = self._sample_torque_class(n=3, interval=0.15)
             self._logger.info(f"반찬 파지 판별: {torque_cls}")
 
-            if torque_cls == "집게":
-                # 반찬이 집히지 않은 것으로 판단 → 집게 복귀 후 스테이지 실패
-                self.sm.add_step_log("⚠️ [3/5] 반찬 미파지 감지 → 집게 복귀", completed=False)
-                self._movel(c3["tong_return_above_l"], "🍖 [3/5] 집게 복귀 상단")
-                self._movel(c3["tong_return_l"],       "🍖 [3/5] 집게 복귀 하단")
-                self._gripper(100)
-                self._movej(home, "🍖 [3/5] 홈 복귀")
+            if torque_cls == "빈그리퍼":
+                # 집게 자체가 없음 → 비상정지
+                self.sm.add_step_log("🚨 [3/5] 집게 미감지 → 비상정지", completed=False)
+                self.sm.update_status(current_task="집게가 떨어진거같습니다. 확인해주세요.")
+                self.sm.trigger_emergency_stop()
                 return StageResult.ERROR
+
+            if torque_cls == "집게":
+                # 반찬 미파지 → 다시 pick 위치로 돌아가 재시도
+                self.sm.add_step_log("⚠️ [3/5] 반찬 미파지 → 재시도", completed=False)
+                self._gripper(30)
+                if not self._movel(c3["main_dish_transit_l"],  "🍖 [3/5] 재시도: 상단 경유"): return StageResult.STOPPED
+                if not self._movel(c3["main_dish_pick_l"],     "🍖 [3/5] 재시도: 집기 위치"): return StageResult.STOPPED
+                self._gripper(20)
+                self._tick("🍖 [3/5] 재시도: 메인반찬 집기", done=True)
+                if not self._movel(c3["main_dish_lift_l"],     "🍖 [3/5] 재시도: 들어올림"):  return StageResult.STOPPED
 
             # 정상 1개 파지 또는 그 외 → 식판에 투하
             # 식판 앞으로 이동 → 반찬 내려놓기
