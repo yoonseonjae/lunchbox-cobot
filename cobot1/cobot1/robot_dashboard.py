@@ -22,9 +22,15 @@ from aiohttp import web
 _URDF_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                          '..', '..', 'm0609_rg2_combined')
 if not os.path.isdir(_URDF_DIR):
-    _URDF_DIR = '/home/yoon/cobot_ws/src/m0609_rg2_combined'
-_URDF_FILE = os.path.join(_URDF_DIR, 'm0609_rg2.urdf')
+    _URDF_DIR = '/home/rokey/cobot_ws/src/m0609_rg2_combined'
+_URDF_FILE = os.path.join(_URDF_DIR, 'm0609_rg2_web.urdf')
 _MESH_DIR  = os.path.join(_URDF_DIR, 'meshes')
+
+# ── Admin dashboard HTML path ────────────────────────────────────
+_ADMIN_HTML = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           '..', '..', 'lunchbox_web', 'admin_index.html')
+if not os.path.isfile(_ADMIN_HTML):
+    _ADMIN_HTML = '/home/rokey/cobot_ws/src/lunchbox_web/admin_index.html'
 
 # ── Global state (thread-safe) ────────────────────────────────────
 _lock = threading.Lock()
@@ -217,6 +223,13 @@ async def handle_urdf(request):
     return web.Response(status=404, text='URDF not found')
 
 
+async def handle_admin(request):
+    """관리자 대시보드(admin_index.html) 서빙"""
+    if os.path.isfile(_ADMIN_HTML):
+        return web.FileResponse(_ADMIN_HTML, headers={'Access-Control-Allow-Origin': '*'})
+    return web.Response(status=404, text='admin_index.html not found')
+
+
 @web.middleware
 async def cors_middleware(request, handler):
     try:
@@ -232,9 +245,11 @@ async def cors_middleware(request, handler):
 
 def make_app():
     app = web.Application(middlewares=[cors_middleware])
-    app.router.add_get("/",       handle_index)
-    app.router.add_get("/events", handle_sse)
-    app.router.add_get("/state",  handle_state)
+    app.router.add_get("/",                handle_index)
+    app.router.add_get("/admin",           handle_admin)
+    app.router.add_get("/admin_index.html", handle_admin)
+    app.router.add_get("/events",          handle_sse)
+    app.router.add_get("/state",           handle_state)
     app.router.add_get("/urdf/m0609_rg2.urdf", handle_urdf)
     if os.path.isdir(_MESH_DIR):
         app.router.add_static("/urdf/meshes", _MESH_DIR)

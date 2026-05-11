@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             'move_whisk_rice = cobot2.c_1_whisk_rice:main',
+            'move_shake = cobot2.c_1_shake:main',
         ],
     },
 )

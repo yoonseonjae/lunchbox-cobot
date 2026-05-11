@@ -76,29 +76,13 @@ def perform_task():
         set_digital_output(2, OFF)
     set_tool(ROBOT_TOOL)
     # 초기 위치 및 목표 위치 설정
-    JReady = [0, 0, 90, 0, 90, 0]
+    JReady = [0, 0, 90, 0, 0, 0]
     grip() 
     wait(5)
     release()
     # pos1 = posx([ 311.51, -354.31,  141.72,   86.77, -172.62,   83.96])
     pos_list = {
-    "above_l":      [309.241, -311.564, 130.068, 92.607, -154.846, 87.949],
-    "scoop_1_l":    [ 311.51, -354.31,  141.72,   86.77, -172.62,   83.96],
-    "scoop_2_l":    [ 311.14, -338.28,  261.99,   88.09, -172.48,   85.48],
-    "scoop_3_l_o":    [ 302.95, -338.31,  145.90,   95.49, -123.36,   84.43],
-    # "scoop_3_l":    [307.43, -385.358, 146.337, 95.445, -123.317, 84.397], #
-    "scoop_4_l_o":    [ 308.50, -404.91,  100.07,   92.29, -127.87,   86.09],
-    # "scoop_4_l":    [311.114, -404.799, 99.249, 83.18, -127.918, 88.992], #
-    "scoop_5_l":    [ 306.90, -409.71,  129.17,   93.64, -125.28,   88.12],
-    "scoop_6_l":    [ 295.93, -356.23,  199.44,   97.32, -115.74,   86.84],
-    "periodic": [-11.337, -7.675, 128.77, -75.205, 62.179, 20.024],
-    "transit_l":    [ 592.95,  -79.20,  401.79,  174.74, -101.29,   97.38],
-    "place_pre_l":  [ 436.92, -150.80,  182.15,   65.42,  117.41,  -99.45],
-    "place_down_l": [ 429.96, -151.37,  186.05,   65.71,  119.63,  131.19],
-    "place_up_l":   [303.594, -315.467, 260.528, 97.708, -160.721, 86.117],
-    "back_l":       [307.624, -319.38, 140.02, 89.068, -160.029, 85.007],
-    "back_lean_l":  [309.241, -311.564, 130.068, 92.607, -154.846, 87.949],
-    "home_ready_l": [ 480.22, -221.15,  277.26,  125.91, -168.25,   40.68]
+    "periodic": [-50,0,100,0,0,-5],
     }
 
     # 반복 동작 수행
@@ -112,20 +96,12 @@ def perform_task():
         
         for name, pos in pos_list.items():
             print(f"Moving to {name}...")
-            if name not in  [ "scoop_5_l", "scoop_6_l", "periodic"]:
-                movel(pos, vel=VELOCITY, acc=ACC)
-                wait(1)  # 각 위치에서 1초 대기
             if name in ["periodic"]:
-                move_periodic(amp =[0,5,20,0,0,8], period=[0,0.5,0.3,0,0,0.7], atime=0.2, repeat=10, ref=DR_TOOL)
-                wait(1)
-                move_periodic(amp =[0,5,20,0,0,8], period=[0,1.0,1.3,0,0,1.7], atime=0.2, repeat=15, ref=DR_TOOL)
-            if name in ["above_l"]:
-                grip()
-                wait(2)  # 각 위치에서 1초 대기
-            if name in  ["scoop_5_l"]:
-                movec(pos_list["scoop_5_l"], pos_list["scoop_6_l"], vel=VELOCITY, acc=ACC, radius=20)
-            if name in  ["back_lean_l"]:
-                release()
+                move_periodic(amp =pos, period=[1.0,0,1.0,0,0,3.2], atime=0.2, repeat=5, ref=DR_BASE)
+                print("move_periodic")
+                move_periodic(amp =pos, period=[1.0,0,1.0,0,0,3.2], atime=0.2, repeat=5, ref=DR_TOOL)
+                print("move_periodic")
+                move_periodic(amp =pos, period=1.0, atime=0.0, repeat=5, ref=DR_TOOL)
         # print("movec")        
         # movec(pos2, pos3, vel=VELOCITY, acc=ACC, )
     

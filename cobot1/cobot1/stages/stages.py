@@ -313,7 +313,7 @@ class RiceStage(BaseStage):
                 
             if not self._move_periodic(c4["scoop_move_periodic_1"], 0.5, 0.2, 15, "🍚 [4/5] 강하게 흔들기"):
                 return StageResult.STOPPED
-            if not self._move_periodic(c4["scoop_move_periodic_2"], 1.0, 0.2, 15, "🍚 [4/5] 강하게 흔들기"):
+            if not self._move_periodic(c4["scoop_move_periodic_2"], 1.0, 0.2, 15, "🍚 [4/5] 약하게 흔들기"):
                 return StageResult.STOPPED
 
             # 식판으로 이동

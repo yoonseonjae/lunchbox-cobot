@@ -40,6 +40,7 @@ class MockOrderRepository(OrderRepository):
         self._cmd_cb:    Callable         = None
         self._statuses:  List[dict]       = []
         self._lock       = threading.Lock()
+        self._last_status_key: str        = ""
 
     # ── 주문 리스닝 ───────────────────────────────────────────────
     def listen_orders(self, callback: Callable[[Order], None]):
@@ -172,4 +173,7 @@ class MockOrderRepository(OrderRepository):
             self._statuses.append(payload)
         state = payload.get("state", "?")
         task  = payload.get("current_task", "?")
-        _logger.info(f"상태 업로드: state={state} | task={task}")
+        key = f"{state}|{task}"
+        if key != self._last_status_key:
+            self._last_status_key = key
+            _logger.info(f"상태 업로드: state={state} | task={task}")
