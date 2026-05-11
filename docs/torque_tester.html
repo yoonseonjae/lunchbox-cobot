@@ -1,0 +1,1000 @@
+<!--
+  Gripper Torque Tester
+  =====================
+  사전 조건: ros2_ws_bridge.py 실행 중 (ws://localhost:8765)
+  열기: xdg-open ~/cobot_ws/docs/torque_tester.html
+-->
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8">
+  <title>Gripper Torque Tester</title>
+  <style>
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: #0d1117;
+      color: #e6edf3;
+      font-family: 'Consolas', 'Monaco', monospace;
+      min-height: 100vh;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    h1 {
+      font-size: 18px;
+      color: #58a6ff;
+      letter-spacing: 1px;
+    }
+
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 10px;
+      padding: 18px 22px;
+    }
+
+    .card-title {
+      font-size: 12px;
+      color: #8b949e;
+      letter-spacing: 0.5px;
+      margin-bottom: 14px;
+      text-transform: uppercase;
+    }
+
+    /* ── 상태 바 ── */
+    .chip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: #21262d;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 5px 12px;
+      font-size: 12px;
+    }
+
+    .chip .label {
+      color: #8b949e;
+    }
+
+    .chip .val {
+      color: #e6edf3;
+      font-weight: bold;
+    }
+
+    #ws-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #f85149;
+    }
+
+    #ws-dot.on {
+      background: #3fb950;
+    }
+
+    /* ── 모드 토글 ── */
+    .mode-toggle {
+      display: flex;
+      gap: 0;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+
+    .mode-btn {
+      padding: 6px 18px;
+      font-size: 12px;
+      font-weight: bold;
+      cursor: pointer;
+      border: none;
+      background: #21262d;
+      color: #8b949e;
+      font-family: inherit;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .mode-btn.active {
+      background: #1f6feb;
+      color: #fff;
+    }
+
+    /* ── 실시간 토크 ── */
+    #torque-grid {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 12px;
+    }
+
+    .joint-box {
+      background: #21262d;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 14px 10px;
+      text-align: center;
+      transition: border-color 0.2s;
+    }
+
+    .joint-box .jlabel {
+      font-size: 11px;
+      color: #8b949e;
+      margin-bottom: 6px;
+    }
+
+    .joint-box .jval {
+      font-size: 26px;
+      font-weight: bold;
+      color: #58a6ff;
+    }
+
+    .joint-box .junit {
+      font-size: 10px;
+      color: #8b949e;
+      margin-top: 2px;
+    }
+
+    .joint-box.recording .jval {
+      color: #f0883e;
+    }
+
+    .joint-box.recording {
+      border-color: #f0883e;
+    }
+
+    /* ── 버튼 ── */
+    button {
+      padding: 8px 22px;
+      border: none;
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+
+    button:disabled {
+      opacity: 0.35;
+      cursor: default;
+    }
+
+    #btn-start {
+      background: #238636;
+      color: #fff;
+    }
+
+    #btn-stop {
+      background: #da3633;
+      color: #fff;
+    }
+
+    #btn-register {
+      background: #1f6feb;
+      color: #fff;
+    }
+
+    #control-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    #rec-indicator {
+      font-size: 12px;
+      color: #f0883e;
+      display: none;
+      align-items: center;
+      gap: 6px;
+    }
+
+    #rec-indicator.active {
+      display: flex;
+    }
+
+    .blink {
+      animation: blink 1s step-start infinite;
+    }
+
+    @keyframes blink {
+      50% {
+        opacity: 0;
+      }
+    }
+
+    #sample-count {
+      font-size: 12px;
+      color: #8b949e;
+    }
+
+    /* ── 평균 결과 ── */
+    #avg-grid {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 12px;
+    }
+
+    .avg-box {
+      background: #21262d;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 12px 10px;
+      text-align: center;
+    }
+
+    .avg-box .jlabel {
+      font-size: 11px;
+      color: #8b949e;
+      margin-bottom: 4px;
+    }
+
+    .avg-box .aval {
+      font-size: 22px;
+      font-weight: bold;
+      color: #3fb950;
+    }
+
+    .avg-box .junit {
+      font-size: 10px;
+      color: #8b949e;
+      margin-top: 2px;
+    }
+
+    #no-result {
+      color: #8b949e;
+      font-size: 13px;
+    }
+
+    /* ── 분류 결과 ── */
+    #classify-result {
+      display: none;
+      margin-top: 16px;
+      padding: 18px 22px;
+      border-radius: 10px;
+      border: 2px solid #30363d;
+      text-align: center;
+    }
+
+    #classify-result.show {
+      display: block;
+    }
+
+    #classify-result .cls-label {
+      font-size: 12px;
+      color: #8b949e;
+      margin-bottom: 8px;
+    }
+
+    #classify-result .cls-name {
+      font-size: 36px;
+      font-weight: bold;
+      color: #f0883e;
+    }
+
+    #classify-result .cls-conf {
+      font-size: 12px;
+      color: #8b949e;
+      margin-top: 6px;
+    }
+
+    #classify-result .cls-dist-table {
+      margin-top: 14px;
+      font-size: 11px;
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    #classify-result .cls-dist-table td {
+      padding: 3px 8px;
+    }
+
+    #classify-result .cls-dist-table .best {
+      color: #3fb950;
+      font-weight: bold;
+    }
+
+    #classify-result .cls-dist-table .rest {
+      color: #8b949e;
+    }
+
+    /* ── 등록 ── */
+    #register-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    #obj-name {
+      flex: 1;
+      min-width: 180px;
+      max-width: 320px;
+      background: #21262d;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      color: #e6edf3;
+      font-family: inherit;
+      font-size: 13px;
+      padding: 7px 12px;
+      outline: none;
+    }
+
+    #obj-name:focus {
+      border-color: #58a6ff;
+    }
+
+    #register-msg {
+      font-size: 12px;
+      color: #3fb950;
+      display: none;
+    }
+
+    /* ── 테이블 ── */
+    #result-table-wrap {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    th {
+      background: #21262d;
+      color: #8b949e;
+      padding: 8px 12px;
+      text-align: left;
+      border-bottom: 1px solid #30363d;
+      white-space: nowrap;
+    }
+
+    td {
+      padding: 8px 12px;
+      border-bottom: 1px solid #21262d;
+      white-space: nowrap;
+    }
+
+    tr:hover td {
+      background: #21262d;
+    }
+
+    td.num {
+      color: #58a6ff;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    td.name {
+      color: #e6edf3;
+      font-weight: bold;
+    }
+
+    .del-btn {
+      background: none;
+      border: 1px solid #f85149;
+      color: #f85149;
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    .del-btn:hover {
+      background: #f85149;
+      color: #fff;
+    }
+
+    #empty-row td {
+      color: #8b949e;
+      text-align: center;
+    }
+
+    /* ── mode-specific hide ── */
+    .test-mode-only {
+      display: none;
+    }
+
+    .train-mode-only {
+      display: block;
+    }
+
+    body.test-mode .test-mode-only {
+      display: block;
+    }
+
+    body.test-mode .train-mode-only {
+      display: none;
+    }
+
+    /* ── 테스트 서브토글 (메인반찬 / 식판들어올리기) ── */
+    .sub-toggle {
+      display: flex;
+      gap: 0;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      overflow: hidden;
+      margin-bottom: 14px;
+    }
+
+    .sub-btn {
+      flex: 1;
+      padding: 7px 16px;
+      font-size: 12px;
+      font-weight: bold;
+      cursor: pointer;
+      border: none;
+      background: #21262d;
+      color: #8b949e;
+      font-family: inherit;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .sub-btn.active {
+      background: #388bfd;
+      color: #fff;
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- 헤더 -->
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+    <h1>▶ GRIPPER TORQUE TESTER</h1>
+    <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+      <!-- 모드 토글 -->
+      <div class="mode-toggle">
+        <button class="mode-btn active" id="btn-mode-train" onclick="setMode('train')">측정 모드</button>
+        <button class="mode-btn" id="btn-mode-test" onclick="setMode('test')">테스트 모드</button>
+      </div>
+      <div class="chip">
+        <div id="ws-dot"></div>
+        <span class="label">WS</span>
+        <span class="val" id="ws-label">DISCONNECTED</span>
+      </div>
+      <div class="chip">
+        <span class="label">수신</span>
+        <span class="val" id="recv-count">0</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 실시간 토크 -->
+  <div class="card">
+    <div class="card-title">실시간 외력 토크 (Nm)</div>
+    <div id="torque-grid">
+      <div class="joint-box" id="box-j1">
+        <div class="jlabel">J1</div>
+        <div class="jval" id="live-j1">—</div>
+        <div class="junit">Nm</div>
+      </div>
+      <div class="joint-box" id="box-j2">
+        <div class="jlabel">J2</div>
+        <div class="jval" id="live-j2">—</div>
+        <div class="junit">Nm</div>
+      </div>
+      <div class="joint-box" id="box-j3">
+        <div class="jlabel">J3</div>
+        <div class="jval" id="live-j3">—</div>
+        <div class="junit">Nm</div>
+      </div>
+      <div class="joint-box" id="box-j4">
+        <div class="jlabel">J4</div>
+        <div class="jval" id="live-j4">—</div>
+        <div class="junit">Nm</div>
+      </div>
+      <div class="joint-box" id="box-j5">
+        <div class="jlabel">J5</div>
+        <div class="jval" id="live-j5">—</div>
+        <div class="junit">Nm</div>
+      </div>
+      <div class="joint-box" id="box-j6">
+        <div class="jlabel">J6</div>
+        <div class="jval" id="live-j6">—</div>
+        <div class="junit">Nm</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 측정 컨트롤 -->
+  <div class="card">
+    <div class="card-title" id="ctrl-title">측정</div>
+    <div id="control-row">
+      <button id="btn-start">▶ 시작</button>
+      <button id="btn-stop" disabled>■ 종료</button>
+      <div id="rec-indicator"><span class="blink">●</span> 기록 중</div>
+      <span id="sample-count"></span>
+    </div>
+  </div>
+
+  <!-- 평균 결과 (측정 모드) -->
+  <div class="card train-mode-only">
+    <div class="card-title">측정 평균 (종료 후 표시)</div>
+    <div id="no-result">아직 측정 결과가 없습니다.</div>
+    <div id="avg-grid" style="display:none;">
+      <div class="avg-box">
+        <div class="jlabel">J1</div>
+        <div class="aval" id="avg-j1">—</div>
+        <div class="junit">Nm</div>
+      </div>
+      <div class="avg-box">
+        <div class="jlabel">J2</div>
+        <div class="aval" id="avg-j2">—</div>
+        <div class="junit">Nm</div>
+      </div>
+      <div class="avg-box">
+        <div class="jlabel">J3</div>
+        <div class="aval" id="avg-j3">—</div>
+        <div class="junit">Nm</div>
+      </div>
+      <div class="avg-box">
+        <div class="jlabel">J4</div>
+        <div class="aval" id="avg-j4">—</div>
+        <div class="junit">Nm</div>
+      </div>
+      <div class="avg-box">
+        <div class="jlabel">J5</div>
+        <div class="aval" id="avg-j5">—</div>
+        <div class="junit">Nm</div>
+      </div>
+      <div class="avg-box">
+        <div class="jlabel">J6</div>
+        <div class="aval" id="avg-j6">—</div>
+        <div class="junit">Nm</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 분류 결과 (테스트 모드) -->
+  <div class="card test-mode-only">
+    <div class="card-title">분류 결과</div>
+    <!-- 서브토글 -->
+    <div class="sub-toggle">
+      <button class="sub-btn active" id="btn-sub-main" onclick="setSubMode('main')">🍖 메인반찬 집을때</button>
+      <button class="sub-btn" id="btn-sub-plate" onclick="setSubMode('plate')">🍱 식판 들어올릴때</button>
+    </div>
+    <div id="sub-mode-label" style="font-size:11px; color:#8b949e; margin-bottom:10px;">
+      판별 대상: <span id="sub-classes-label" style="color:#79c0ff;">빈그리퍼 / 집게 / 집게+돈까스</span>
+    </div>
+    <div id="classify-result">
+      <div class="cls-label">측정 후 종료하면 분류 결과가 표시됩니다</div>
+    </div>
+  </div>
+
+  <!-- 물체 등록 (측정 모드만) -->
+  <div class="card train-mode-only">
+    <div class="card-title">물체 등록</div>
+    <div id="register-row">
+      <input id="obj-name" type="text" placeholder="물체 이름 입력 (예: 식판, 반찬통)">
+      <button id="btn-register" disabled>등록</button>
+      <span id="register-msg">✅ 등록됨</span>
+    </div>
+  </div>
+
+  <!-- 등록 결과 대시보드 (측정 모드만) -->
+  <div class="card train-mode-only">
+    <div class="card-title">등록 결과 대시보드</div>
+    <div id="result-table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>물체명</th>
+            <th style="text-align:right">J1 (Nm)</th>
+            <th style="text-align:right">J2 (Nm)</th>
+            <th style="text-align:right">J3 (Nm)</th>
+            <th style="text-align:right">J4 (Nm)</th>
+            <th style="text-align:right">J5 (Nm)</th>
+            <th style="text-align:right">J6 (Nm)</th>
+            <th>시간</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="result-tbody">
+          <tr id="empty-row">
+            <td colspan="10">등록된 항목이 없습니다.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    // ══════════════════════════════════════════════════════════════════
+    // ML 모델
+    // 1단계: Weighted Nearest Centroid — 6개 클래스 중 대분류
+    // 2단계: LDA (비선형 피처 확장) — 집게 vs 집게+돈까스 정밀 분류
+    // 학습 데이터: 집게/집게+돈까스 각 10샘플 + 나머지 이전 데이터
+    // ══════════════════════════════════════════════════════════════════
+
+    // ── 메인반찬 모드: 빈그리퍼 / 집게 / 집게+돈까스 ──────────────
+    // 자세별 centroid — J2<0: 자세1(기존좌표), J2>0: 자세2(새자세)
+    const MAIN_CENTROID_EMPTY_P1 = [-1.7290, -3.9483, -1.0040, -0.0410, -0.7492, 0.5551];
+    const MAIN_CENTROID_TONGS_P1 = [-1.7275, -3.5669, -0.7583, -0.0270, -0.7298, 0.5681];
+    const MAIN_CENTROID_EMPTY_P2 = [-1.5030,  5.5009,  4.8264,  0.1065,  0.0309, 0.5786];
+    const MAIN_CENTROID_TONGS_P2 = [-1.4976,  5.8417,  5.0727,  0.1343,  0.0644, 0.5748];
+    // 2단계 LDA: 집게 vs 집게+돈까스 (27차원 비선형, 40샘플 학습, 40/40 정확도)
+    const MAIN_LDA_W = [-10.3934, 161.7655, -226.3896, -91.8144, -105.0389, 116.832,
+    -159.3577, 6.4035, 15.257, 45.4365, -351.1303, 65.7134,
+      112.7315, -205.6856, -0.4587, 207.2723, -203.717, -22.7478,
+    -66.8274, 4.6005, 101.3461, 131.6389, 82.4018, -223.2087,
+    -74.4183, -25.0255, 66.0221];
+    const MAIN_LDA_THRESHOLD = -51.966856; // score >= threshold → 집게+돈까스
+
+    // ── 식판 모드: 빈그리퍼 / 책받침 / 책받침+가득식판 ──────────────
+    const PLATE_CENTROIDS = {
+      '빈그리퍼': [-0.6863, -1.7153, -0.4214, -0.2538, 0.3252, 0.4615],
+      '책받침': [-0.6779, -0.6134, 0.5328, -0.2505, 0.4410, 0.4646],
+      '책받침+가득식판': [-0.6502, 1.2317, 2.5479, -0.1966, 0.8722, 0.4662],
+    };
+    const PLATE_WEIGHTS = [0.5, 1.5, 8.0, 0.5, 2.0, 0.1];
+
+    // ── 서브모드 상태 ─────────────────────────────────────────────────
+    let subMode = 'main'; // 'main' | 'plate'
+
+    function setSubMode(mode) {
+      subMode = mode;
+      document.getElementById('btn-sub-main').classList.toggle('active', mode === 'main');
+      document.getElementById('btn-sub-plate').classList.toggle('active', mode === 'plate');
+      document.getElementById('sub-classes-label').textContent =
+        mode === 'main' ? '빈그리퍼 / 집게 / 집게+돈까스'
+          : '빈그리퍼 / 책받침 / 책받침+가득식판';
+      // 이전 결과 초기화
+      const cr = document.getElementById('classify-result');
+      cr.className = '';
+      cr.innerHTML = '<div class="cls-label">측정 후 종료하면 분류 결과가 표시됩니다</div>';
+    }
+
+    function expandFeatures(x) {
+      const sq = x.map(v => v * v);
+      const cross = [];
+      for (let i = 0; i < 6; i++)
+        for (let j = i + 1; j < 6; j++)
+          cross.push(x[i] * x[j]);
+      return [...x, ...sq, ...cross]; // 27차원
+    }
+
+    // ── 1단계 가중치: 빈그리퍼 vs 집게류 구분용 ──────────────────────
+    // J2(4.25σ), J4(4.09σ) 분리도 최강 → 가중치 크게, 나머지 낮게
+    // 나중에 바꾸고 싶으면 이 배열만 수정: [J1, J2, J3, J4, J5, J6]
+    const MAIN_W_STAGE1 = [0.1, 10.0, 2.0, 50.0, 1.0, 0.1];
+
+    function weightedDist(a, b, w) {
+      return Math.sqrt(a.reduce((s, v, i) => s + w[i] * (v - b[i]) ** 2, 0));
+    }
+
+    // ── 메인반찬 분류: 빈그리퍼 / 집게 / 집게+돈까스 ─────────────────
+    function classifyMain(avg) {
+      // J2 부호로 자세 판별 → 자세별 centroid 선택
+      const isP2 = avg[1] > 0;
+      const centEmpty = isP2 ? MAIN_CENTROID_EMPTY_P2 : MAIN_CENTROID_EMPTY_P1;
+      const centTongs = isP2 ? MAIN_CENTROID_TONGS_P2 : MAIN_CENTROID_TONGS_P1;
+
+      // 1단계: 빈그리퍼 vs 집게류 (가중 nearest centroid)
+      const dEmpty = weightedDist(avg, centEmpty, MAIN_W_STAGE1);
+      const dTongs = weightedDist(avg, centTongs, MAIN_W_STAGE1);
+      const isEmpty = dEmpty < dTongs;
+
+      if (isEmpty) {
+        const confidence = Math.min(dTongs / dEmpty, 5);
+        return {
+          best: '빈그리퍼', usedLDA: false, ldaRawScore: null, confidence,
+          all: [
+            { cls: '빈그리퍼', dist: dEmpty },
+            { cls: '집게', dist: dTongs * 1.1 },
+            { cls: '집게+돈까스', dist: dTongs * 1.2 },
+          ]
+        };
+      }
+
+      // 2단계: LDA — 집게 vs 집게+돈까스
+      const feat = expandFeatures(avg);
+      const score = feat.reduce((s, v, i) => s + MAIN_LDA_W[i] * v, 0);
+      const isDonk = score >= MAIN_LDA_THRESHOLD;
+      const best = isDonk ? '집게+돈까스' : '집게';
+      const all = [
+        { cls: '빈그리퍼', dist: dEmpty },
+        { cls: '집게', dist: dTongs * (isDonk ? 1.2 : 1.0) },
+        { cls: '집게+돈까스', dist: dTongs * (isDonk ? 1.0 : 1.2) },
+      ].sort((a, b) => a.dist - b.dist);
+      const confidence = Math.min(all[1].dist / all[0].dist, 5);
+      return { best, usedLDA: true, ldaRawScore: score, confidence, all };
+    }
+
+    // ── 식판 분류: 빈그리퍼 / 책받침 / 책받침+가득식판 ──────────────
+    function classifyPlate(avg) {
+      const results = Object.entries(PLATE_CENTROIDS).map(([cls, centroid]) => {
+        const dist = Math.sqrt(
+          avg.reduce((sum, v, i) => sum + PLATE_WEIGHTS[i] * (v - centroid[i]) ** 2, 0)
+        );
+        return { cls, dist };
+      });
+      results.sort((a, b) => a.dist - b.dist);
+      const confidence = results.length > 1 ? Math.min(results[1].dist / results[0].dist, 5) : 1;
+      return { best: results[0].cls, usedLDA: false, ldaRawScore: null, confidence, all: results };
+    }
+
+    function classify(avg) {
+      return subMode === 'main' ? classifyMain(avg) : classifyPlate(avg);
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // State
+    // ══════════════════════════════════════════════════════════════════
+    const WS_URL = 'ws://localhost:8765';
+
+    let currentTorque = [0, 0, 0, 0, 0, 0];
+    let recording = false;
+    let samples = [];
+    let lastAvg = null;
+    let recvCount = 0;
+    let sampleTimer = null;
+    let records = [];
+    let mode = 'train'; // 'train' | 'test'
+
+    // ══════════════════════════════════════════════════════════════════
+    // Mode toggle
+    // ══════════════════════════════════════════════════════════════════
+    function setMode(m) {
+      mode = m;
+      document.body.classList.toggle('test-mode', m === 'test');
+      document.getElementById('btn-mode-train').classList.toggle('active', m === 'train');
+      document.getElementById('btn-mode-test').classList.toggle('active', m === 'test');
+      document.getElementById('ctrl-title').textContent = m === 'test' ? '테스트 측정' : '측정';
+      // 상태 초기화
+      if (recording) {
+        recording = false;
+        stopSampling();
+        document.getElementById('btn-start').disabled = false;
+        document.getElementById('btn-stop').disabled = true;
+        document.getElementById('rec-indicator').classList.remove('active');
+        for (let i = 1; i <= 6; i++) document.getElementById(`box-j${i}`).classList.remove('recording');
+      }
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // WebSocket
+    // ══════════════════════════════════════════════════════════════════
+    function connectWS() {
+      const ws = new WebSocket(WS_URL);
+      const dot = document.getElementById('ws-dot');
+      const lbl = document.getElementById('ws-label');
+
+      ws.onopen = () => { dot.className = 'on'; lbl.textContent = 'CONNECTED'; };
+      ws.onmessage = e => {
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.type === 'torque' && Array.isArray(msg.eff)) {
+            currentTorque = msg.eff;
+            recvCount++;
+            updateLive();
+          }
+        } catch { }
+      };
+      ws.onclose = () => {
+        dot.className = '';
+        lbl.textContent = 'DISCONNECTED';
+        setTimeout(connectWS, 2000);
+      };
+      ws.onerror = () => ws.close();
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Live display
+    // ══════════════════════════════════════════════════════════════════
+    function updateLive() {
+      document.getElementById('recv-count').textContent = recvCount;
+      currentTorque.forEach((v, i) => {
+        const el = document.getElementById(`live-j${i + 1}`);
+        if (el) el.textContent = v.toFixed(3);
+      });
+      if (recording)
+        document.getElementById('sample-count').textContent = `${samples.length} samples`;
+    }
+
+    function startSampling() {
+      sampleTimer = setInterval(() => {
+        if (recording) samples.push([...currentTorque]);
+      }, 1000);
+    }
+    function stopSampling() {
+      if (sampleTimer) { clearInterval(sampleTimer); sampleTimer = null; }
+    }
+    function computeAvg(data) {
+      if (!data.length) return [0, 0, 0, 0, 0, 0];
+      const sums = [0, 0, 0, 0, 0, 0];
+      data.forEach(row => row.forEach((v, i) => { sums[i] += v; }));
+      return sums.map(s => s / data.length);
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Controls
+    // ══════════════════════════════════════════════════════════════════
+    document.getElementById('btn-start').addEventListener('click', () => {
+      recording = true;
+      samples = [];
+      lastAvg = null;
+
+      document.getElementById('btn-start').disabled = true;
+      document.getElementById('btn-stop').disabled = false;
+      document.getElementById('rec-indicator').classList.add('active');
+      document.getElementById('sample-count').textContent = '0 samples';
+
+      // 측정 모드 UI 초기화
+      document.getElementById('avg-grid').style.display = 'none';
+      document.getElementById('no-result').textContent = '아직 측정 결과가 없습니다.';
+      document.getElementById('no-result').style.display = '';
+      document.getElementById('btn-register').disabled = true;
+
+      // 테스트 모드 분류결과 초기화
+      const cr = document.getElementById('classify-result');
+      cr.className = '';
+      cr.innerHTML = '<div class="cls-label">측정 중...</div>';
+
+      for (let i = 1; i <= 6; i++) document.getElementById(`box-j${i}`).classList.add('recording');
+      startSampling();
+    });
+
+    document.getElementById('btn-stop').addEventListener('click', () => {
+      recording = false;
+      stopSampling();
+      lastAvg = computeAvg(samples);
+
+      document.getElementById('btn-start').disabled = false;
+      document.getElementById('btn-stop').disabled = true;
+      document.getElementById('rec-indicator').classList.remove('active');
+      document.getElementById('sample-count').textContent = `총 ${samples.length}개 샘플`;
+      for (let i = 1; i <= 6; i++) document.getElementById(`box-j${i}`).classList.remove('recording');
+
+      if (!samples.length) {
+        document.getElementById('no-result').textContent = '샘플이 없습니다. 다시 측정해주세요.';
+        return;
+      }
+
+      if (mode === 'train') {
+        // 평균 표시 + 등록 버튼
+        document.getElementById('no-result').style.display = 'none';
+        document.getElementById('avg-grid').style.display = '';
+        lastAvg.forEach((v, i) => document.getElementById(`avg-j${i + 1}`).textContent = v.toFixed(4));
+        document.getElementById('btn-register').disabled = false;
+
+      } else {
+        // 테스트 모드: 분류
+        const result = classify(lastAvg);
+        showClassifyResult(result, lastAvg);
+      }
+    });
+
+    // ══════════════════════════════════════════════════════════════════
+    // Classification display
+    // ══════════════════════════════════════════════════════════════════
+    function showClassifyResult(result, avg) {
+      const cr = document.getElementById('classify-result');
+      cr.className = 'show';
+
+      // confidence bar width (최대 5배 차이 → 100%)
+      const confPct = Math.min((result.confidence - 1) / 4 * 100, 100).toFixed(0);
+      const confColor = result.confidence > 2.5 ? '#3fb950' : result.confidence > 1.5 ? '#f0883e' : '#f85149';
+      const confText = result.confidence > 2.5 ? '높음' : result.confidence > 1.5 ? '보통' : '낮음';
+
+      const distRows = result.all.map(r => `
+    <tr>
+      <td class="${r.cls === result.best ? 'best' : 'rest'}" style="text-align:left; padding:3px 12px;">
+        ${r.cls === result.best ? '▶ ' : '　'}${r.cls}
+      </td>
+      <td class="${r.cls === result.best ? 'best' : 'rest'}" style="text-align:right; padding:3px 12px;">
+        ${r.dist.toFixed(4)}
+      </td>
+    </tr>
+  `).join('');
+
+      const methodLabel = result.usedLDA
+        ? `LDA (27차원 비선형 확장) · ${samples.length}개 샘플`
+        : `Weighted Nearest Centroid · ${samples.length}개 샘플`;
+      const ldaInfo = result.usedLDA
+        ? `<div style="margin-top:6px; font-size:11px; color:#8b949e;">
+        LDA score: <span style="color:#79c0ff;">${result.ldaRawScore.toFixed(2)}</span>
+        &nbsp;/&nbsp; threshold: <span style="color:#79c0ff;">${MAIN_LDA_THRESHOLD.toFixed(2)}</span>
+        &nbsp;→&nbsp; <span style="color:${result.ldaRawScore >= MAIN_LDA_THRESHOLD ? '#f0883e' : '#3fb950'};">
+          ${result.ldaRawScore >= MAIN_LDA_THRESHOLD ? 'score ≥ threshold → 집게+돈까스' : 'score < threshold → 집게'}
+        </span>
+       </div>`
+        : '';
+
+      cr.innerHTML = `
+    <div class="cls-label">분류 결과 (${methodLabel})</div>
+    <div class="cls-name">${result.best}</div>
+    <div class="cls-conf" style="margin-top:10px;">
+      신뢰도: <span style="color:${confColor}; font-weight:bold;">${confText}</span>
+      (거리 비율 ${result.confidence.toFixed(2)}×)
+    </div>
+    <div style="margin-top:8px; background:#21262d; border-radius:4px; height:6px; overflow:hidden;">
+      <div style="height:100%; width:${confPct}%; background:${confColor}; transition:width 0.4s;"></div>
+    </div>
+    ${ldaInfo}
+    <table class="cls-dist-table" style="margin-top:16px;">
+      <tr>
+        <th style="text-align:left; padding:3px 12px; color:#8b949e;">클래스</th>
+        <th style="text-align:right; padding:3px 12px; color:#8b949e;">가중거리</th>
+      </tr>
+      ${distRows}
+    </table>
+    <div style="margin-top:14px; font-size:11px; color:#8b949e;">
+      측정 평균: J1=${avg[0].toFixed(4)} J2=${avg[1].toFixed(4)} J3=${avg[2].toFixed(4)}
+      J4=${avg[3].toFixed(4)} J5=${avg[4].toFixed(4)} J6=${avg[5].toFixed(4)}
+    </div>
+  `;
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Register (측정 모드)
+    // ══════════════════════════════════════════════════════════════════
+    document.getElementById('btn-register').addEventListener('click', () => {
+      const name = document.getElementById('obj-name').value.trim();
+      if (!name) { document.getElementById('obj-name').focus(); return; }
+      if (!lastAvg) return;
+
+      records.push({ name, avg: [...lastAvg], time: new Date().toLocaleTimeString() });
+      renderTable();
+
+      const msg = document.getElementById('register-msg');
+      msg.style.display = '';
+      setTimeout(() => { msg.style.display = 'none'; }, 2000);
+
+      document.getElementById('obj-name').value = '';
+      document.getElementById('btn-register').disabled = true;
+      lastAvg = null;
+      document.getElementById('avg-grid').style.display = 'none';
+      document.getElementById('no-result').textContent = '아직 측정 결과가 없습니다.';
+      document.getElementById('no-result').style.display = '';
+    });
+
+    document.getElementById('obj-name').addEventListener('keydown', e => {
+      if (e.key === 'Enter') document.getElementById('btn-register').click();
+    });
+
+    // ══════════════════════════════════════════════════════════════════
+    // Table
+    // ══════════════════════════════════════════════════════════════════
+    function renderTable() {
+      const tbody = document.getElementById('result-tbody');
+      if (!records.length) {
+        tbody.innerHTML = '<tr id="empty-row"><td colspan="10">등록된 항목이 없습니다.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = records.map((r, idx) => `
+    <tr>
+      <td>${idx + 1}</td>
+      <td class="name">${escHtml(r.name)}</td>
+      ${r.avg.map(v => `<td class="num">${v.toFixed(4)}</td>`).join('')}
+      <td style="color:#8b949e">${r.time}</td>
+      <td><button class="del-btn" onclick="deleteRecord(${idx})">삭제</button></td>
+    </tr>
+  `).join('');
+    }
+
+    function deleteRecord(idx) { records.splice(idx, 1); renderTable(); }
+    function escHtml(s) {
+      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Boot
+    // ══════════════════════════════════════════════════════════════════
+    connectWS();
+    renderTable();
+  </script>
+</body>
+
+</html>

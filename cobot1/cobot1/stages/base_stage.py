@@ -8,9 +8,10 @@
 import time
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from rclpy.logging import get_logger
+from ..torque_classifier import get_classifier
 
 class StageResult(Enum):
     SUCCESS = "success"
@@ -18,20 +19,16 @@ class StageResult(Enum):
     ERROR   = "error"
 
 class BaseStage(ABC):
-    def __init__(self, state_manager, robot_client, coord_manager, name: str):
-        """BaseStage 공통 의존성을 초기화한다.
-
-        Args:
-            state_manager: RobotStateManager 인스턴스.
-            robot_client: RobotClient 인스턴스.
-            coord_manager: CoordinateManager 인스턴스.
-            name (str): ROS 로거에 사용할 스테이지 이름.
-        """
+    def __init__(self, state_manager, robot_client, coord_manager, name: str,
+                 seg_publish_fn: Optional[Callable[[dict], None]] = None):
         self.sm   = state_manager
         self.rc   = robot_client
         self.cm   = coord_manager
         self.name = name
-        self._logger = get_logger(name)        
+        self._logger = get_logger(name)
+        # robot_controller에서 주입되는 세그먼트 publish 콜백
+        # 형식: fn({"type": "seg_start"|"seg_end", "seg_id": str, ...})
+        self._seg_publish_fn: Optional[Callable[[dict], None]] = seg_publish_fn
 
     @abstractmethod
     def execute(self) -> StageResult:
@@ -302,3 +299,41 @@ class BaseStage(ABC):
         """
         self.sm.tick(label)
         self.sm.add_step_log(label, completed=done)
+
+    def _seg_start(self, seg_id: str, motion: str, label: str) -> None:
+        """모션 세그먼트 시작을 브리지에 알림. motion: 'sync' | 'async'"""
+        if self._seg_publish_fn:
+            self._seg_publish_fn({
+                'type':   'seg_start',
+                'seg_id': seg_id,
+                'motion': motion,
+                'label':  label,
+            })
+
+    def _seg_end(self, seg_id: str) -> None:
+        """모션 세그먼트 종료를 브리지에 알림."""
+        if self._seg_publish_fn:
+            self._seg_publish_fn({'type': 'seg_end', 'seg_id': seg_id})
+
+    def _sample_torque_class(self, n: int = 5, interval: float = 0.15) -> str:
+        """
+        n개 토크 샘플을 interval 간격으로 수집하고 평균으로 페이로드 클래스를 반환.
+        로봇이 정지 상태일 때 호출할 것.
+        """
+        samples = []
+        for _ in range(n):
+            try:
+                t = self.rc.get_external_torque()
+                if t and len(t) == 6:
+                    samples.append(t)
+            except Exception:
+                pass
+            time.sleep(interval)
+
+        if not samples:
+            self._logger.warn("토크 샘플 수집 실패 - 빈그리퍼로 처리")
+            return "빈그리퍼"
+
+        result = get_classifier().predict_class_from_mean(samples)
+        self._logger.info(f"토크 분류 결과: {result} (샘플 {len(samples)}개)")
+        return result

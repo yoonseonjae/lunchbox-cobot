@@ -14,6 +14,7 @@
 ==============================================================================
 """
 
+import time
 from .base_stage import BaseStage, StageResult
 from typing import Dict, List
 
@@ -94,6 +95,10 @@ class TraySetupStage(BaseStage):
             return StageResult.SUCCESS
 
         except Exception as e:
+            if "generator already executing" in str(e):
+                self._logger.warn(f"executor 충돌 감지, 재시도: {e}")
+                time.sleep(0.5)
+                return self.execute()
             self._logger.error(f"오류: {e}")
             return StageResult.ERROR
 
@@ -103,19 +108,12 @@ class TraySetupStage(BaseStage):
 class SubDishStage(BaseStage):
     """서브 반찬 1종의 Pick & Place 스테이지. dish_name에 따라 좌표를 가져온다."""
 
-    def __init__(self, state_manager, robot_client, coord_manager, dish_name: str, slot_index: int):
-        """서브 반찬 스테이지를 생성한다.
-
-        Args:
-            state_manager: RobotStateManager 인스턴스.
-            robot_client: RobotClient 인스턴스.
-            coord_manager: CoordinateManager 인스턴스.
-            dish_name (str): 반찬 이름 (예: 피클, 단무지). YAML에 등록되어 있어야 한다.
-            slot_index (int): 식판의 몇 번째 칸에 놓을지 결정하는 인덱스.
-        """
-        super().__init__(state_manager, robot_client, coord_manager, f"SubDish-{dish_name}")
+    def __init__(self, state_manager, robot_client, coord_manager,
+                 dish_name: str, slot_index: int, seg_publish_fn=None):
+        super().__init__(state_manager, robot_client, coord_manager,
+                         f"SubDish-{dish_name}", seg_publish_fn=seg_publish_fn)
         self.dish_name = dish_name
-        self.slot_index = slot_index  # 식판의 몇 번째 칸에 놓을지 결정하는 인덱스
+        self.slot_index = slot_index
 
     def execute(self) -> StageResult:
         """지정한 반찬을 집어서 식판 슬롯에 놓는 시퀀스를 실행한다.
@@ -125,61 +123,61 @@ class SubDishStage(BaseStage):
         """
         self.sm.update_status(current_task=f"🥗 [2/5] 서브 반찬 - [{self.dish_name}]")
         home = self.cm.home_joint()
+        d = self.dish_name
 
         try:
-            pick_wp = self.cm.sub_dish_pick(self.dish_name)
+            pick_wp  = self.cm.sub_dish_pick(d)
             place_wp = self.cm.sub_dish_place(self.slot_index)
         except KeyError as e:
             self._logger.error(f"SubDish 좌표 없음: {e}")
             return StageResult.ERROR
 
+        # 세그먼트 ID: 반찬명 + 슬롯으로 구분
+        seg_sync  = f"sub_sync_{d}_{self.slot_index}"
+        seg_async = f"sub_async_{d}_{self.slot_index}"
+
         try:
-            # 홈
-            if not self._movej(home,                    f"🥗 [{self.dish_name}] 홈 이동"):     return StageResult.STOPPED
+            # ── [동기 구간 시작] 홈 → 픽 위치 ────────────────────────────────
+            self._seg_start(seg_sync, 'sync', f'{d} 픽 접근(동기)')
+
+            if not self._movej(home,                 f"🥗 [{d}] 홈 이동"):  return StageResult.STOPPED
             self._gripper(100)
+            if not self._movej(pick_wp["pre_pick_j"],f"🥗 [{d}] 픽 준비", radius=40): return StageResult.STOPPED
+            if not self._movel(pick_wp["pick_l"],    f"🥗 [{d}] 픽 위치", radius=40): return StageResult.STOPPED
 
-            # 반찬통 접근 (관절) → 픽 위치 (직선)
-            if not self._movej(pick_wp["pre_pick_j"],        f"🥗 [{self.dish_name}] 픽 준비", radius=40):      return StageResult.STOPPED
-            # 순응+힘제어: 반찬통 접촉 시 -10N 아래방향 유지
-            self._start_compliance()
-            self._start_force_ctrl(-10.0)
-            if not self._movel(pick_wp["pick_l"],            f"🥗 [{self.dish_name}] 픽 위치", radius=40):
-                self._stop_force_ctrl(); self._stop_compliance()
-                return StageResult.STOPPED
+            self._seg_end(seg_sync)
+            # ── [동기 구간 종료] ─────────────────────────────────────────────
 
-            # 집기
+            # 집기 (동작 없음, 타이밍 제외)
             self._gripper(50)
             self.rc.wait(0.5)
             self._stop_force_ctrl()
             self._stop_compliance()
             if not self._check_grip():
                 return StageResult.ERROR
+            self._tick(f"🥗 [{d}] 집기", done=True)
 
-            self._tick(f"🥗 [{self.dish_name}] 집기", done=True)
+            # ── [비동기 구간 시작] 들어올림 → 슬롯 접근 (radius 블렌딩) ────────
+            self._seg_start(seg_async, 'async', f'{d} 이송(비동기·radius=40)')
 
-            # 들어올림
-            if not self._amovel(pick_wp["up_pick_l"],         f"🥗 [{self.dish_name}] 들어올림", radius=40):     return StageResult.STOPPED
+            if not self._amovel(pick_wp["up_pick_l"],    f"🥗 [{d}] 들어올림", radius=40):  return StageResult.STOPPED
+            if not self._amovej(place_wp["pre_place_j"], f"🥗 [{d}] 슬롯 접근", radius=40): return StageResult.STOPPED
 
-            # 식판 슬롯 이동 (관절) → 놓기 (직선)
-            if not self._amovej(place_wp["pre_place_j"],       f"🥗 [{self.dish_name}] 슬롯 접근", radius=40):    return StageResult.STOPPED
-            # 순응+힘제어: 식판 슬롯 안착 시 -10N 아래방향 유지
-            self._start_compliance()
-            self._start_force_ctrl(-10.0)
-            if not self._movel(place_wp["place_l"],           f"🥗 [{self.dish_name}] 놓기"):
-                self._stop_force_ctrl(); self._stop_compliance()
-                return StageResult.STOPPED
+            self._seg_end(seg_async)
+            # ── [비동기 구간 종료] ────────────────────────────────────────────
 
-            # 놓기
+            if not self._movel(place_wp["place_l"], f"🥗 [{d}] 놓기"): return StageResult.STOPPED
+
             self._gripper(100)
-            self._stop_force_ctrl()
-            self._stop_compliance()
-            self._tick(f"🥗 [{self.dish_name}] 완료", done=True)
-
-            # 홈 복귀
-            self._movej(home, f"🥗 [{self.dish_name}] 홈 복귀")
+            self._tick(f"🥗 [{d}] 완료", done=True)
+            self._movej(home, f"🥗 [{d}] 홈 복귀")
             return StageResult.SUCCESS
 
         except Exception as e:
+            if "generator already executing" in str(e):
+                self._logger.warn(f"executor 충돌 감지, 재시도: {e}")
+                time.sleep(0.5)
+                return self.execute()
             self._logger.error(f"오류: {e}")
             return StageResult.ERROR
 
@@ -238,6 +236,29 @@ class MainDishStage(BaseStage):
             # 반찬 집고 위로
             if not self._movel(c3["main_dish_lift_l"],        "🍖 [3/5] 반찬 들어올림"):      return StageResult.STOPPED
 
+            # ── 토크 기반 반찬 파지 여부 판별 ─────────────────────────────
+            self._tick("🍖 [3/5] 토크 측정 중", done=False)
+            torque_cls = self._sample_torque_class(n=3, interval=0.15)
+            self._logger.info(f"반찬 파지 판별: {torque_cls}")
+
+            if torque_cls == "빈그리퍼":
+                # 집게 자체가 없음 → 비상정지
+                self.sm.add_step_log("🚨 [3/5] 집게 미감지 → 비상정지", completed=False)
+                self.sm.update_status(current_task="집게가 떨어진거같습니다. 확인해주세요.")
+                self.sm.trigger_emergency_stop()
+                return StageResult.ERROR
+
+            if torque_cls == "집게":
+                # 반찬 미파지 → 다시 pick 위치로 돌아가 재시도
+                self.sm.add_step_log("⚠️ [3/5] 반찬 미파지 → 재시도", completed=False)
+                self._gripper(30)
+                if not self._movel(c3["main_dish_transit_l"],  "🍖 [3/5] 재시도: 상단 경유"): return StageResult.STOPPED
+                if not self._movel(c3["main_dish_pick_l"],     "🍖 [3/5] 재시도: 집기 위치"): return StageResult.STOPPED
+                self._gripper(20)
+                self._tick("🍖 [3/5] 재시도: 메인반찬 집기", done=True)
+                if not self._movel(c3["main_dish_lift_l"],     "🍖 [3/5] 재시도: 들어올림"):  return StageResult.STOPPED
+
+            # 정상 1개 파지 또는 그 외 → 식판에 투하
             # 식판 앞으로 이동 → 반찬 내려놓기
             if not self._movel(c3["tray_approach_l"],         "🍖 [3/5] 식판 앞 접근"):       return StageResult.STOPPED
             self._gripper(30)
@@ -254,6 +275,10 @@ class MainDishStage(BaseStage):
             return StageResult.SUCCESS
 
         except Exception as e:
+            if "generator already executing" in str(e):
+                self._logger.warn(f"executor 충돌 감지, 재시도: {e}")
+                time.sleep(0.5)
+                return self.execute()
             self._logger.error(f"오류: {e}")
             return StageResult.ERROR
 
@@ -340,6 +365,10 @@ class RiceStage(BaseStage):
             return StageResult.SUCCESS
 
         except Exception as e:
+            if "generator already executing" in str(e):
+                self._logger.warn(f"executor 충돌 감지, 재시도: {e}")
+                time.sleep(0.5)
+                return self.execute()
             self._logger.error(f"오류: {e}")
             return StageResult.ERROR
 
@@ -367,7 +396,8 @@ class DeliveryStage(BaseStage):
             StageResult: SUCCESS | STOPPED | ERROR.
         """
         self.sm.update_status(current_task="📦 [5/5] 식판 배달")
-        c5 = self.cm.stage(5)
+        c5   = self.cm.stage(5)
+        home = self.cm.home_joint()
 
         try:
             # 식판 파지 준비 (순응+힘제어: 식판 파지 시 -10N 아래방향 유지)
@@ -379,12 +409,10 @@ class DeliveryStage(BaseStage):
                 self._stop_force_ctrl(); self._stop_compliance()
                 return StageResult.STOPPED
 
-            # 식판 파지
+            # 식판홀더 파지
             self._gripper(5)
             self.rc.wait(1.0)
-            self._stop_force_ctrl()
-            self._stop_compliance()
-            self._tick("📦 [5/5] 식판 파지", done=True)
+            self._tick("📦 [5/5] 식판홀더 파지", done=True)
 
             # 픽업 장소로 이동
             if not self._movel(c5["p007_l"],  "📦 [5/5] 들어올림"):       return StageResult.STOPPED
@@ -414,5 +442,74 @@ class DeliveryStage(BaseStage):
             return StageResult.SUCCESS
 
         except Exception as e:
+            if "generator already executing" in str(e):
+                self._logger.warn(f"executor 충돌 감지, 재시도: {e}")
+                time.sleep(0.5)
+                return self.execute()
             self._logger.error(f"오류: {e}")
+            return StageResult.ERROR
+
+    def execute_after_estop_resume(self) -> StageResult:
+        """
+        배달 중 비상정지(외력 60N 초과 또는 state=3 에러) 후 재개 버튼을 눌렀을 때 호출.
+
+        토크를 측정해 현재 그리퍼 파지 상태를 판별하고 다음 중 하나를 수행:
+          - 빈그리퍼          → 그리퍼 열고 홈 복귀 (처음 단계부터 재시작은 상위 컨트롤러가 담당)
+          - 책받침            → 식판홀더만 잡고 있음 → 홀더 초기 위치 복귀 후 홈
+          - 책받침+가득식판    → 홀더+식판 그대로 → 홀더 초기 위치 복귀 후 홈
+        """
+        self.sm.update_status(current_task="📦 [5/5] 비상정지 재개 - 파지 상태 확인 중")
+        c5   = self.cm.stage(5)
+        home = self.cm.home_joint()
+
+        # ── 토크 측정 ─────────────────────────────────────────────────────────
+        self._tick("📦 [5/5] 재개 후 토크 측정 중", done=False)
+        torque_cls = self._sample_torque_class(n=5, interval=0.15)
+        self._logger.info(f"비상정지 재개 파지 판별: {torque_cls}")
+
+        try:
+            if torque_cls == "빈그리퍼":
+                # 그리퍼에 아무것도 없음 → 그리퍼 열고 홈 복귀
+                self.sm.add_step_log("📦 빈 그리퍼 감지 → 홈 복귀 (1단계부터 재시작)")
+                self._gripper(100)
+                self._movej(home, "📦 [5/5] 홈 복귀")
+                # StageResult.STOPPED를 반환해 상위 컨트롤러가 1단계 재시작을 인지하게 함
+                return StageResult.STOPPED
+
+            # 책받침 또는 책받침+가득식판 → 5단계 마지막 파트 (홀더 초기위치 복귀) 진행
+            if torque_cls == "책받침+가득식판":
+                self.sm.add_step_log("📦 식판홀더+식판 감지 → 홀더 초기 위치 복귀 진행")
+            else:
+                self.sm.add_step_log("📦 식판홀더만 감지 → 홀더 초기 위치 복귀 진행")
+
+            # p012_j (안착 위치) 기준으로 재개: 그리퍼를 닫고 홀더를 초기 위치로 복귀
+            self._gripper(5)
+            self.rc.wait(0.5)
+
+            # 홀더 초기 위치 복귀 경로 (역방향: p012 → p011 → p010 → p009 → p008 → p007 → p006)
+            if not self._movej(c5["p012_j"],  "📦 [5/5] 재개: 안착위치 재확인"): return StageResult.STOPPED
+            if not self._movel(c5["p011_l"],  "📦 [5/5] 재개: 안착준비 복귀"):   return StageResult.STOPPED
+            if not self._movej(c5["p010_j"],  "📦 [5/5] 재개: 이동2 복귀"):      return StageResult.STOPPED
+            if not self._movel(c5["p009_l"],  "📦 [5/5] 재개: 픽업접근 복귀"):   return StageResult.STOPPED
+            if not self._movej(c5["p008_j"],  "📦 [5/5] 재개: 이동1 복귀"):      return StageResult.STOPPED
+            if not self._movel(c5["p007_l"],  "📦 [5/5] 재개: 홀더 하강"):       return StageResult.STOPPED
+            if not self._movej(c5["p006_j"],  "📦 [5/5] 재개: 홀더 초기위치"):   return StageResult.STOPPED
+
+            # 홀더 내려놓기
+            self._gripper(50)
+            self.rc.wait(0.5)
+            self._tick("📦 [5/5] 홀더 초기위치 안착", done=True)
+
+            # 그리퍼 완전히 열고 홈 복귀
+            self._gripper(100)
+            self._movej(home, "📦 [5/5] 홈 복귀")
+            self._tick("📦 [5/5] 비상정지 재개 완료", done=True)
+            return StageResult.SUCCESS
+
+        except Exception as e:
+            if "generator already executing" in str(e):
+                self._logger.warn(f"executor 충돌, 재시도: {e}")
+                time.sleep(0.5)
+                return self.execute_after_estop_resume()
+            self._logger.error(f"비상정지 재개 오류: {e}")
             return StageResult.ERROR
