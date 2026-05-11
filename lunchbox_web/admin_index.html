@@ -856,7 +856,7 @@
             </div>
             <div class="cctv-config">
                 <input type="text" id="cctv-url" placeholder="http://내PC_IP:5000/video_feed"
-                    value="http://localhost:5000/video_feed">
+                    value="">
                 <button class="ctrl-btn ctrl-btn-blue" onclick="connectCctv()">연결</button>
                 <button class="ctrl-btn" onclick="disconnectCctv()">중지</button>
             </div>
@@ -871,7 +871,7 @@
             </div>
             <div class="cctv-config">
                 <input type="text" id="urdf-url" placeholder="http://localhost:8080/urdf/m0609_rg2.urdf"
-                    value="http://localhost:8080/urdf/m0609_rg2.urdf">
+                    value="">
                 <button class="ctrl-btn ctrl-btn-blue" id="btn-load-urdf" style="flex: 1;">🔄 로드</button>
             </div>
         </div>
@@ -1254,11 +1254,31 @@
             if (t) t.textContent = new Date().toTimeString().slice(0, 8);
         }, 1000);
 
-        window.addEventListener('load', () => { setTimeout(connectCctv, 500); });
+        window.addEventListener('load', () => {
+            // URDF URL 동적 설정
+            const urdfInput = document.getElementById('urdf-url');
+            if (urdfInput && !urdfInput.value) {
+                urdfInput.value = DASHBOARD_URL + '/urdf/m0609_rg2.urdf';
+            }
+            // CCTV URL 동적 설정 (placeholder만 업데이트, 자동연결 안함)
+            const cctvInput = document.getElementById('cctv-url');
+            if (cctvInput) {
+                cctvInput.placeholder = 'http://' + window.location.hostname + ':5000/video_feed';
+            }
+        });
 
         let sseSource = null;
+        // 대시보드 서버 URL 자동 감지 (같은 호스트:8080)
+        const DASH_HOST = window.location.hostname;
+        const DASHBOARD_URL = 'http://' + DASH_HOST + ':8080';
+
+        let _sseReconnTimer = null;
         function connectJointSSE() {
-            sseSource = new EventSource('http://localhost:8080/events');
+            if (sseSource) { try { sseSource.close(); } catch(e) {} }
+            sseSource = new EventSource(DASHBOARD_URL + '/events');
+            sseSource.onopen = function() {
+                if (_sseReconnTimer) { clearTimeout(_sseReconnTimer); _sseReconnTimer = null; }
+            };
             sseSource.onmessage = function (e) {
                 try {
                     const data = JSON.parse(e.data);
@@ -1270,7 +1290,11 @@
                     if (window._urdfUpdateJoints) window._urdfUpdateJoints(jp);
                 } catch (err) { }
             };
-            sseSource.onerror = function () { };
+            sseSource.onerror = function () {
+                if (!_sseReconnTimer) {
+                    _sseReconnTimer = setTimeout(function() { _sseReconnTimer = null; connectJointSSE(); }, 3000);
+                }
+            };
         }
         connectJointSSE();
     </script>
@@ -1305,7 +1329,7 @@
         const grid = new THREE.GridHelper(2, 20, 0x1e1e40, 0x1e1e40);
         scene.add(grid);
 
-        const DASHBOARD = 'http://localhost:8080';
+        const DASHBOARD = window.location.protocol + '//' + window.location.hostname + ':8080';
         const loader = new URDFLoader();
         loader.loadMeshCb = function (path, manager, onComplete) {
             const url = path.startsWith('http') ? path : DASHBOARD + path;
@@ -1324,8 +1348,8 @@
         const DEG2RAD = Math.PI / 180;
 
         window.loadURDF = function () {
-            const url = document.getElementById('urdf-url').value;
-            if (!url) return;
+            let url = document.getElementById('urdf-url').value;
+            if (!url) url = DASHBOARD + '/urdf/m0609_rg2.urdf';
             document.getElementById('v-status').textContent = 'loading...';
             if (robot) { scene.remove(robot); robot = null; }
 
@@ -1352,14 +1376,18 @@
         animate();
 
         window.addEventListener('resize', function () {
-            camera.aspect = box.clientWidth / box.clientHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(box.clientWidth, box.clientHeight);
+            if (box.clientWidth > 0 && box.clientHeight > 0) {
+                camera.aspect = box.clientWidth / box.clientHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(box.clientWidth, box.clientHeight);
+            }
         });
         new ResizeObserver(function () {
-            camera.aspect = box.clientWidth / box.clientHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(box.clientWidth, box.clientHeight);
+            if (box.clientWidth > 0 && box.clientHeight > 0) {
+                camera.aspect = box.clientWidth / box.clientHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(box.clientWidth, box.clientHeight);
+            }
         }).observe(box);
     </script>
 </body>

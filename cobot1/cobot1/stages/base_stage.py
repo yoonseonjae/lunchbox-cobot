@@ -126,7 +126,7 @@ class BaseStage(ABC):
             try:
                 time.sleep(0.05)
                 self.rc.do_amovej(coords, radius=radius)
-                if not self.rc.wait_motion_done(): return False
+                if not self.rc.wait_motion_done(stop_check=self.sm.is_stopped): return False
                 if self.sm.is_paused():
                     self.sm.wait_if_paused()
                     continue 
@@ -160,7 +160,7 @@ class BaseStage(ABC):
             try:
                 time.sleep(0.05) # 🚨 API 간섭 방지
                 self.rc.do_amovel(coords, radius=radius)
-                if not self.rc.wait_motion_done(): return False
+                if not self.rc.wait_motion_done(stop_check=self.sm.is_stopped): return False
                 if self.sm.is_paused():
                     self.sm.wait_if_paused()
                     continue
@@ -196,7 +196,7 @@ class BaseStage(ABC):
             try:
                 time.sleep(0.05)
                 self.rc.do_move_periodic(coords, period_ms, atime, count)
-                if not self.rc.wait_motion_done(): return False
+                if not self.rc.wait_motion_done(stop_check=self.sm.is_stopped): return False
                 if self.sm.is_paused():
                     self.sm.wait_if_paused()
                     continue

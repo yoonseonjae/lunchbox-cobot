@@ -27,14 +27,19 @@ cobot_ws/src/
 │   │   ├── lunchbox_database_node.py   # Firebase ↔ ROS2 브릿지
 │   │   ├── robot_dashboard.py          # 실시간 로봇 상태 모니터링
 │   │   ├── camera_stream_server.py     # USB 카메라 MJPEG 스트리밍
+│   │   ├── mini_jog.py                 # 관절 수동 제어 유틸
+│   │   ├── move_basic.py               # 기본 이동 테스트 유틸
+│   │   ├── torque_classifier.py        # 토크 기반 접촉 감지
 │   │   ├── repositories/
-│   │   │   ├── firebase_order_repository.py  # Firestore 주문 수신
+│   │   │   ├── order_repository.py       # 주문 저장소 추상 인터페이스
+│   │   │   ├── firebase_order_repository.py  # Firebase 구현체
 │   │   │   └── mock_order_repository.py      # 테스트용 목 데이터
 │   │   └── stages/
 │   │       ├── stages.py               # 5단계 로봇 동작 구현
 │   │       └── base_stage.py           # 스테이지 기본 클래스
 │   ├── config/
-│   │   └── robot_coordinates.yaml      # 관절 좌표 설정
+│   │   ├── robot_coordinates.yaml      # 관절 좌표 설정
+│   │   └── serviceAccountKey.json      # Firebase 서비스 계정 키 (gitignore)
 │   └── launch/
 │       └── lunchbox.launch.py
 ├── lunchbox_web/            # 관리자 웹 페이지 (ROS2 패키지)
@@ -105,7 +110,9 @@ Firestore `orders` 컬렉션의 `status=pending` 문서를 실시간 감시.
 ### `robot_dashboard.py` — 모니터링 대시보드
 ROS2 토픽(`joint_states`, `error`, `digital_io`)을 구독하고  
 2초마다 서비스 폴링(`get_current_posx`, `get_robot_mode` 등)으로 상태 수집.  
-aiohttp WebSocket 서버(포트 8765)로 웹 대시보드에 실시간 전송.
+aiohttp SSE(Server-Sent Events) 서버(포트 8080)로 웹 대시보드에 실시간 전송.  
+`http://localhost:8080` — DSR 3D URDF 뷰어 포함.  
+`http://localhost:8080/admin` — 관리자 대시보드(Firebase 연동).
 
 ### `camera_stream_server.py` — CCTV 스트리밍
 USB 카메라 영상을 MJPEG 스트림(포트 5000, `/video_feed`)으로 발행.  
@@ -155,8 +162,10 @@ ros2 run cobot1 robot_dashboard
 cd ~/cobot_ws && source install/setup.bash
 ros2 run cobot1 camera_stream_server
 
-# Browser
-xdg-open file:///home/yoon/cobot_ws/src/lunchbox_web/admin_index.html
+# Browser — 관리자 대시보드
+xdg-open http://localhost:8080/admin
+# 또는 DSR 모니터링 대시보드
+xdg-open http://localhost:8080
 ```
 
 ---

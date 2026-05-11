@@ -29,20 +29,31 @@ class CoordinateManager:
         cm.stage(1)["tray_storage"]["upper"]   # [-81.953, ...]
     """
 
-    _DEFAULT_CONFIG = os.path.join(
-        os.path.dirname(__file__), "config", "robot_coordinates.yaml"
-    )
+    # 패키지 루트 config 우선, 없으면 모듈 내 config fallback
+    _PACKAGE_ROOT = os.path.dirname(os.path.dirname(__file__))  # cobot1/ 패키지 루트
+    _DEFAULT_CONFIG = os.path.join(_PACKAGE_ROOT, "config", "robot_coordinates.yaml")
+    _FALLBACK_CONFIG = os.path.join(os.path.dirname(__file__), "config", "robot_coordinates.yaml")
 
     def __init__(self, config_path: str = None):
         """YAML 설정 파일을 로드하여 코디네이트 매니저를 초기화한다.
 
         Args:
             config_path (str | None): YAML 파일 절대 경로.
-                                      None이면 config/robot_coordinates.yaml 자동 탐색.
+                                      None이면 cobot1/config/robot_coordinates.yaml 자동 탐색.
         Raises:
             FileNotFoundError: 파일이 존재하지 않으면.
         """
-        path = config_path or self._DEFAULT_CONFIG
+        if config_path:
+            path = config_path
+        elif os.path.exists(self._DEFAULT_CONFIG):
+            path = self._DEFAULT_CONFIG
+        elif os.path.exists(self._FALLBACK_CONFIG):
+            path = self._FALLBACK_CONFIG
+            _logger.warn(f"패키지 루트 config 없음, fallback 사용: {path}")
+        else:
+            raise FileNotFoundError(
+                f"[CoordinateManager] 설정 파일 없음: {self._DEFAULT_CONFIG}"
+            )
         if not os.path.exists(path):
             raise FileNotFoundError(f"[CoordinateManager] 설정 파일 없음: {path}")
         with open(path, "r", encoding="utf-8") as f:

@@ -35,7 +35,7 @@ if not os.path.isfile(_ADMIN_HTML):
 # ── Global state (thread-safe) ────────────────────────────────────
 _lock = threading.Lock()
 robot_state = {
-    "connection": "connected",
+    "connection": "disconnected",
     "joint_names": [f"J{i+1}" for i in range(6)],
     "joint_positions": [0.0] * 6,
     "joint_velocities": [0.0] * 6,
@@ -72,6 +72,16 @@ class RobotDashboardNode(Node):
         self._alarm_cli = self.create_client(GetLastAlarm,      "/dsr01/system/get_last_alarm")
 
         self.create_timer(2.0, self._poll)
+        self.create_timer(3.0, self._check_connection)
+
+    def _check_connection(self):
+        """마지막 joint_states 수신 후 5초 이상 경과하면 disconnected 표시"""
+        with _lock:
+            age = time.time() - robot_state["last_update"]
+            if robot_state["last_update"] > 0 and age > 5.0:
+                robot_state["connection"] = "disconnected"
+            elif robot_state["last_update"] == 0.0:
+                robot_state["connection"] = "disconnected"
 
     def _cb_joints(self, msg):
         import math
@@ -515,9 +525,12 @@ function render(d){
 
 // ── SSE 연결 (WebSocket 대신) ─────────────────────────────────────
 var es;
+var _reconnTimer=null;
 function connectSSE(){
+  if(es){try{es.close();}catch(e){}}
   es=new EventSource('/events');
   es.onopen=function(){
+    if(_reconnTimer){clearTimeout(_reconnTimer);_reconnTimer=null;}
     console.log('SSE connected');
   };
   es.onmessage=function(e){
@@ -530,6 +543,9 @@ function connectSSE(){
   es.onerror=function(){
     var badge=document.getElementById('conn-badge');
     badge.textContent='● 재연결중...';badge.className='disc';
+    if(!_reconnTimer){
+      _reconnTimer=setTimeout(function(){_reconnTimer=null;connectSSE();},3000);
+    }
   };
 }
 connectSSE();
@@ -600,14 +616,18 @@ function animate(){requestAnimationFrame(animate);controls.update();renderer.ren
 animate();
 
 window.addEventListener('resize',function(){
-  camera.aspect=box.clientWidth/box.clientHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(box.clientWidth,box.clientHeight);
+  if(box.clientWidth>0&&box.clientHeight>0){
+    camera.aspect=box.clientWidth/box.clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(box.clientWidth,box.clientHeight);
+  }
 });
 new ResizeObserver(function(){
-  camera.aspect=box.clientWidth/box.clientHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(box.clientWidth,box.clientHeight);
+  if(box.clientWidth>0&&box.clientHeight>0){
+    camera.aspect=box.clientWidth/box.clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(box.clientWidth,box.clientHeight);
+  }
 }).observe(box);
 </script>
 </body>

@@ -66,17 +66,13 @@ class TraySetupStage(BaseStage):
             # 세팅 장소 이동 (순응+힘제어: 식판 안착 시 -10N 아래방향 유지)
             if not self._movej(c1["setting"]["upper"],                "🍱 [1/5] 세팅 상단"):         return StageResult.STOPPED
             if not self._movej(c1["setting"]["lower_1"],              "🍱 [1/5] 세팅 하단1"):        return StageResult.STOPPED
-            self._start_compliance()
-            self._start_force_ctrl(-10.0)
-            if not self._movej(c1["setting"]["lower_2"],              "🍱 [1/5] 세팅 하단2"):
-                self._stop_force_ctrl(); self._stop_compliance()
-                return StageResult.STOPPED
+            if not self._movej(c1["setting"]["lower_2"],              "🍱 [1/5] 세팅 하단2"):        return StageResult.STOPPED
 
             # 식판 내려놓기
             self._gripper(50)
             self.rc.wait(1.0)
-            self._stop_force_ctrl()
-            self._stop_compliance()
+            
+            
             self._tick("🍱 [1/5] 식판 안착", done=True)
 
             # 그리퍼 후퇴
@@ -146,8 +142,8 @@ class SubDishStage(BaseStage):
             # 집기 (동작 없음, 타이밍 제외)
             self._gripper(50)
             self.rc.wait(0.5)
-            self._stop_force_ctrl()
-            self._stop_compliance()
+            
+            
             if not self._check_grip():
                 return StageResult.ERROR
             self._tick(f"🥗 [{d}] 집기", done=True)
@@ -392,10 +388,8 @@ class DeliveryStage(BaseStage):
             # 식판 파지 준비 (순응+힘제어: 식판 파지 시 -10N 아래방향 유지)
             if not self._movel(c5["p004_l"],  "📦 [5/5] 접근"):          return StageResult.STOPPED
             if not self._movej(c5["p005_j"],  "📦 [5/5] 파지 준비1"):     return StageResult.STOPPED
-            self._start_compliance()
-            self._start_force_ctrl(-10.0)
+            
             if not self._movej(c5["p006_j"],  "📦 [5/5] 파지 위치"):
-                self._stop_force_ctrl(); self._stop_compliance()
                 return StageResult.STOPPED
 
             # 식판홀더 파지
@@ -410,16 +404,14 @@ class DeliveryStage(BaseStage):
             if not self._movej(c5["p010_j"],  "📦 [5/5] 이동2"):          return StageResult.STOPPED
             if not self._movel(c5["p011_l"],  "📦 [5/5] 안착 준비"):      return StageResult.STOPPED
             # 순응+힘제어: 식판 안착 시 -10N 아래방향 유지
-            self._start_compliance()
-            self._start_force_ctrl(-10.0)
+            
             if not self._movej(c5["p012_j"],  "📦 [5/5] 안착 위치"):
-                self._stop_force_ctrl(); self._stop_compliance()
                 return StageResult.STOPPED
 
             # 식판 내려놓기
             self._gripper(50)
-            self._stop_force_ctrl()
-            self._stop_compliance()
+            
+            
             self._tick("📦 [5/5] 식판 안착", done=True)
 
             # 후퇴 (실패해도 배달 완료로 처리)

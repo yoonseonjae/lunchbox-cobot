@@ -220,16 +220,21 @@ class RobotClient:
         except Exception:
             return True
 
-    def wait_motion_done(self) -> bool:
+    def wait_motion_done(self, stop_check: Optional[Callable[[], bool]] = None) -> bool:
         """check_motion이 0이 될 때까지 폴링하며 이동 완료를 기다린다.
 
+        Args:
+            stop_check (Callable[[], bool] | None): 매 폴링마다 호출해 True이면
+                (비상정지 등) 즉시 False를 반환한다. None이면 체크 없음.
         Returns:
-            bool: 항상 True. inject 전이면 즉시 True 반환.
+            bool: 정상 완료면 True, 정지 감지 시 False.
         """
         if self._drs_check_motion is None:
             return True
         time.sleep(MOTION_START_DELAY_SEC)
         while self._drs_check_motion() != 0:
+            if stop_check and stop_check():
+                return False
             time.sleep(MOTION_CHECK_INTERVAL_SEC)
         return True
 
