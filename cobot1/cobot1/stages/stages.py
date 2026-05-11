@@ -116,8 +116,8 @@ class SubDishStage(BaseStage):
 
             if not self._movej(home,                 f"🥗 [{d}] 홈 이동"):  return StageResult.STOPPED
             self._gripper(100)
-            if not self._movej(pick_wp["pre_pick_j"],f"🥗 [{d}] 픽 준비", radius=40): return StageResult.STOPPED
-            if not self._movel(pick_wp["pick_l"],    f"🥗 [{d}] 픽 위치", radius=40): return StageResult.STOPPED
+            if not self._movej(pick_wp["pre_pick_j"],f"🥗 [{d}] 픽 준비", radius=20): return StageResult.STOPPED
+            if not self._movel(pick_wp["pick_l"],    f"🥗 [{d}] 픽 위치", radius=20): return StageResult.STOPPED
 
             self._seg_end(seg_sync)
             # ── [동기 구간 종료] ─────────────────────────────────────────────
@@ -132,8 +132,8 @@ class SubDishStage(BaseStage):
             # ── [비동기 구간 시작] 들어올림 → 슬롯 접근 (radius 블렌딩) ────────
             self._seg_start(seg_async, 'async', f'{d} 이송(비동기·radius=40)')
 
-            if not self._amovel(pick_wp["up_pick_l"],    f"🥗 [{d}] 들어올림", radius=40):  return StageResult.STOPPED
-            if not self._amovej(place_wp["pre_place_j"], f"🥗 [{d}] 슬롯 접근", radius=40): return StageResult.STOPPED
+            if not self._amovel(pick_wp["up_pick_l"],    f"🥗 [{d}] 들어올림", radius=10):  return StageResult.STOPPED
+            if not self._amovej(place_wp["pre_place_j"], f"🥗 [{d}] 슬롯 접근", radius=10): return StageResult.STOPPED
 
             self._seg_end(seg_async)
             # ── [비동기 구간 종료] ────────────────────────────────────────────
@@ -203,15 +203,8 @@ class MainDishStage(BaseStage):
             torque_cls = self._sample_torque_class(n=3, interval=0.15)
             self._logger.info(f"반찬 파지 판별: {torque_cls}")
 
-            if torque_cls == "빈그리퍼":
-                # 집게 자체가 없음 → 비상정지
-                self.sm.add_step_log("🚨 [3/5] 집게 미감지 → 비상정지", completed=False)
-                self.sm.update_status(current_task="집게가 떨어진거같습니다. 확인해주세요.")
-                self.sm.trigger_emergency_stop()
-                return StageResult.ERROR
-
-            if torque_cls == "집게":
-                # 반찬 미파지 → 다시 pick 위치로 돌아가 재시도
+            # 집게+돈까스가 아니면(집게 포함 그 외) → 미파지로 간주하고 재시도
+            if torque_cls != "집게+돈까스":
                 self.sm.add_step_log("⚠️ [3/5] 반찬 미파지 → 재시도", completed=False)
                 self._gripper(30)
                 if not self._movel(c3["main_dish_transit_l"],  "🍖 [3/5] 재시도: 상단 경유"): return StageResult.STOPPED
@@ -220,9 +213,10 @@ class MainDishStage(BaseStage):
                 self._tick("🍖 [3/5] 재시도: 메인반찬 집기", done=True)
                 if not self._movel(c3["main_dish_lift_l"],     "🍖 [3/5] 재시도: 들어올림"):  return StageResult.STOPPED
 
-            # 정상 1개 파지 또는 그 외 → 식판에 투하
+            # 정상 파지 → 식판에 투하
             # 식판 앞으로 이동 → 반찬 내려놓기
             if not self._movel(c3["tray_approach_l"],         "🍖 [3/5] 식판 앞 접근"):       return StageResult.STOPPED
+            if not self._movel(c3["tray_approach2_l"],         "🍖 [3/5] 식판 앞 접근"):       return StageResult.STOPPED
             self._gripper(30)
             if not self._movel(c3["tray_release_l"],          "🍖 [3/5] 반찬 투하"):          return StageResult.STOPPED
 
@@ -287,6 +281,10 @@ class RiceStage(BaseStage):
                 if not self._movel(c4[key], label):
                     return StageResult.STOPPED
 
+            # 밥 털기 (흔들기)
+            if not self._move_periodic(amp=[0,5,20,0,0,8], period=0.5, atime=0.2, repeat=10,  label="🍚 [4/5] 밥 털기 1"):  return StageResult.STOPPED
+            self.rc.wait(1)
+            if not self._move_periodic(amp=[0,5,20,0,0,8], period=1.0, atime=0.2, repeat=15, label="🍚 [4/5] 밥 털기 2"):  return StageResult.STOPPED
             # 식판으로 이동
             if not self._movel(c4["transit_l"],        "🍚 [4/5] 식판으로 이동"):   return StageResult.STOPPED
             if not self._movel(c4["place_pre_l"],      "🍚 [4/5] 밥칸 접근"):      return StageResult.STOPPED

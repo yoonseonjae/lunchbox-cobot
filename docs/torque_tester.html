@@ -698,11 +698,13 @@
         };
       }
 
-      // 2단계: LDA — 집게 vs 집게+돈까스
-      const feat = expandFeatures(avg);
-      const score = feat.reduce((s, v, i) => s + MAIN_LDA_W[i] * v, 0);
-      const isDonk = score >= MAIN_LDA_THRESHOLD;
+      // 2단계: J2 직접 비교 — 집게 vs 집게+돈까스
+      // 집게 J2 mean=-3.382, 집게+돈까스 J2 mean=-3.057, 경계=-3.220
+      const J2_BOUNDARY = -3.1;
+      const j2 = avg[1];
+      const isDonk = j2 > J2_BOUNDARY;
       const best = isDonk ? '집게+돈까스' : '집게';
+      const score = j2;  // 표시용
       const all = [
         { cls: '빈그리퍼', dist: dEmpty },
         { cls: '집게', dist: dTongs * (isDonk ? 1.2 : 1.0) },

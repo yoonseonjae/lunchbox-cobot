@@ -50,7 +50,8 @@ def main(args=None) -> None:
             set_robot_mode,
             # 🚨 [복구됨] 외력 감지 센서 API
             get_tool_force, get_external_torque,
-            DR_BASE
+            DR_BASE, DR_TOOL,
+            move_periodic,
         )
         from DSR_ROBOT2 import ROBOT_MODE_AUTONOMOUS
         from DR_common2 import posj, posx
@@ -84,6 +85,7 @@ def main(args=None) -> None:
         # 🚨 [복구됨] 클라이언트에 센서 주입
         get_tool_force, get_external_torque,
         posj, posx, DR_BASE,
+        move_periodic, DR_TOOL,
     )
 
     use_firebase = os.path.exists(SERVICE_ACCOUNT_KEY)

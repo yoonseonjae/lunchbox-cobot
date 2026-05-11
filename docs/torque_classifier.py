@@ -118,13 +118,10 @@ class MicroClassifier:
         self.clf_a = LDABinaryClassifier().fit(X_bg * self.weights_a,
                                                X_rest * self.weights_a)
 
-        # Step B 가중치: 집게 vs 집게+돈까스
+        # Step B: J2 경계값 = 집게/집게+돈까스 J2 평균의 중간
         X_jg  = data["집게"]
         X_dgk = data["집게+돈까스"]
-        diff_b = np.abs(X_jg.mean(axis=0) - X_dgk.mean(axis=0))
-        self.weights_b = diff_b / diff_b.sum()
-        self.clf_b = LDABinaryClassifier().fit(X_jg * self.weights_b,
-                                               X_dgk * self.weights_b)
+        self.j2_boundary = float((X_jg[:, 1].mean() + X_dgk[:, 1].mean()) / 2)
         return self
 
     def predict(self, x: np.ndarray) -> str:
@@ -133,9 +130,8 @@ class MicroClassifier:
         if score_a >= 0:
             return "빈그리퍼"
 
-        # Step B
-        score_b = self.clf_b.score(x * self.weights_b)
-        return "집게" if score_b >= 0 else "집게+돈까스"
+        # Step B: J2 직접 비교 (경계값 _J2_BOUNDARY)
+        return "집게+돈까스" if x[1] > self.j2_boundary else "집게"
 
 
 def build_stage2(data: dict) -> MicroClassifier:

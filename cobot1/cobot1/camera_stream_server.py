@@ -37,7 +37,7 @@ from flask import Flask, Response, render_template_string
 # 인자
 # ============================================================================
 parser = argparse.ArgumentParser()
-parser.add_argument("--camera", type=int, default=2, help="USB 카메라 인덱스 (기본 2)")
+parser.add_argument("--camera", type=int, default=0, help="USB 카메라 인덱스 (기본 2)")
 parser.add_argument("--port", type=int, default=5000, help="HTTP 포트 (기본 5000)")
 parser.add_argument("--width", type=int, default=1280, help="카메라 가로 해상도")
 parser.add_argument("--height", type=int, default=720, help="카메라 세로 해상도")
