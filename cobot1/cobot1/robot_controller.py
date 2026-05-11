@@ -67,7 +67,13 @@ class RobotController:
         # 🚨 [수정] 일시정지 상태 및 복구 클라이언트 초기화
         self._test_cancel = threading.Event()  # 테스트 전용 중단 플래그
         self.last_failed_order = None
+        self._in_delivery_stage5 = False  # Stage 5 배달 진행 중 여부 (비상정지 재개 분기용)
         self.recover_client = self.node.create_client(SetRobotControl, '/dsr01/system/set_robot_control')
+        self._status_pub      = self.node.create_publisher(String, '/robot_status', 10)
+        self._tcp_pub         = self.node.create_publisher(String, '/robot_tcp_posx', 10)
+        self._target_posj_pub = self.node.create_publisher(String, '/robot_target_posj', 10)
+        self._torque_pub      = self.node.create_publisher(String, '/robot_torque', 10)
+        self._seg_pub         = self.node.create_publisher(String, '/robot_motion_segment', 10)
 
         self._t_spin:    Optional[threading.Thread] = None
         self._t_task:    Optional[threading.Thread] = None
@@ -90,10 +96,12 @@ class RobotController:
         self._t_task = threading.Thread(target=self._task_loop, name="task", daemon=False)
         self._t_status = threading.Thread(target=self._status_upload_loop, name="status_upload", daemon=True)
         self._t_monitor = threading.Thread(target=self._collision_monitor_loop, name="collision_monitor", daemon=True)
+        self._t_torque = threading.Thread(target=self._torque_publish_loop, name="torque_pub", daemon=True)
 
         self._t_task.start()
         self._t_status.start()
         self._t_monitor.start()
+        self._t_torque.start()
 
         if not self._init_event.wait(timeout=30.0):
             self.node.get_logger().error("초기화 타임아웃 (30초) → 종료")
@@ -145,7 +153,12 @@ class RobotController:
             self.sm.clear_pause()
             if self.sm.is_stopped():
                 self.sm.clear_emergency_stop()
-            self.sm.update_status(state=RobotState.MOVING, current_task="작업 재개 중...")
+            # Stage 5 배달 중 비상정지였으면 토크 판별 재개 경로로 분기
+            if self._in_delivery_stage5:
+                self.sm.update_status(state=RobotState.MOVING, current_task="📦 배달 재개 - 파지 상태 확인 중")
+                self._cmd_queue.put("delivery_estop_resume")
+            else:
+                self.sm.update_status(state=RobotState.MOVING, current_task="작업 재개 중...")
         else:
             self._cmd_queue.put(cmd_type)
 
@@ -258,7 +271,8 @@ class RobotController:
         if should_run(2):
             for idx, dish in enumerate(valid_subs):
                 check_stop()
-                result = SubDishStage(self.sm, self.rc, self.cm, dish, slot_index=idx).execute()
+                result = SubDishStage(self.sm, self.rc, self.cm, dish, slot_index=idx,
+                                     seg_publish_fn=self._seg_publish).execute()
                 if result != StageResult.SUCCESS: raise RuntimeError(f"Stage2 실패: {dish}")
         if should_run(3):
             check_stop()
@@ -331,8 +345,8 @@ class RobotController:
                     check_stop()
                     self.sm.update_status(current_task=f"🥗 [2/5] 서브 {idx+1}/{n_sub} - [{dish}]")
                     
-                    # slot_index=idx 추가하여 호출
-                    result = SubDishStage(self.sm, self.rc, self.cm, dish, slot_index=idx).execute()
+                    result = SubDishStage(self.sm, self.rc, self.cm, dish, slot_index=idx,
+                                         seg_publish_fn=self._seg_publish).execute()
                     
                     if result == StageResult.STOPPED: check_stop()
                     if result != StageResult.SUCCESS: raise RuntimeError(f"Stage2 실패: {dish} {result}")
@@ -360,7 +374,9 @@ class RobotController:
             # ── Stage 5 : 식판 배달 ──────────────────────────────
             if should_run(5):
                 check_stop()
+                self._in_delivery_stage5 = True
                 result = DeliveryStage(self.sm, self.rc, self.cm).execute()
+                self._in_delivery_stage5 = False
                 if result == StageResult.STOPPED: check_stop()
                 if result != StageResult.SUCCESS: raise RuntimeError(f"Stage5 실패: {result}")
             else:
@@ -383,10 +399,50 @@ class RobotController:
             self.repo.mark_error(key)
             self.sm.update_status(state=RobotState.ERROR, current_task=f"오류: {e}")
 
+    def _seg_publish(self, payload: dict) -> None:
+        """모션 세그먼트 이벤트를 /robot_motion_segment 토픽으로 발행."""
+        msg = String()
+        msg.data = json.dumps(payload, ensure_ascii=False)
+        self._seg_pub.publish(msg)
+
+    def _handle_delivery_estop_resume(self) -> None:
+        """
+        Stage 5 배달 중 비상정지(외력 60N / state=3) 후 재개 버튼을 눌렀을 때 실행.
+        토크 분류 결과에 따라:
+          - 빈그리퍼          → 홈 복귀 후 last_failed_order를 1단계부터 재시작
+          - 책받침 / 책받침+가득식판 → 홀더 초기위치 복귀 후 홈
+        """
+        self._in_delivery_stage5 = False
+        stage = DeliveryStage(self.sm, self.rc, self.cm)
+        result = stage.execute_after_estop_resume()
+
+        if result == StageResult.STOPPED:
+            # 빈그리퍼 → 1단계부터 재시작
+            self.node.get_logger().info("📦 배달 재개: 빈그리퍼 → 1단계 재시작")
+            if self.last_failed_order:
+                self.last_failed_order.target_stage = 1
+                self._order_queue.put(self.last_failed_order)
+                self.last_failed_order = None
+            self.sm.update_status(state=RobotState.IDLE, current_task="대기 중")
+        elif result == StageResult.SUCCESS:
+            self.node.get_logger().info("📦 배달 재개: 홀더 복귀 완료")
+            if self.last_failed_order:
+                self.repo.mark_error(self.last_failed_order.key)
+                self.last_failed_order = None
+            self.sm.update_status(state=RobotState.IDLE, current_task="대기 중")
+        else:
+            self.node.get_logger().error("📦 배달 재개 오류")
+            self.sm.update_status(state=RobotState.ERROR, current_task="배달 재개 오류")
+
     def _execute_cmd(self, cmd_type: str) -> None:
         if cmd_type == "emergency_stop":
             self.rc.do_stop()
-            self.sm.trigger_emergency_stop()
+            # collision monitor에서 큐로 보낸 경우 홈 복귀까지 처리
+            time.sleep(3.0)
+            try:
+                self.rc.do_movej(self.cm.home_joint())
+            except Exception:
+                pass
 
         elif cmd_type == "pause_stop":
             # 플래그는 _on_command_received에서 이미 세팅됨. do_stop()만 여기서 처리.
@@ -413,6 +469,9 @@ class RobotController:
             self.node.get_logger().info("🧪 테스트 중단 요청")
             self._test_cancel.set()
             self.rc.do_stop()
+
+        elif cmd_type == "delivery_estop_resume":
+            self._handle_delivery_estop_resume()
 
         elif cmd_type == "move_home":
             self.sm.update_status(state=RobotState.MOVING, current_task="홈 이동 중")
@@ -476,18 +535,59 @@ class RobotController:
         while rclpy.ok() and self._running.is_set():
             try:
                 payload = self.sm.get_status_dict()
-                
+
                 if self.sm.is_paused():
                     payload['state'] = 'paused'
                 elif self.sm.is_stopped():
                     payload['state'] = 'collision'
 
                 self.repo.upload_robot_status(payload)
+
+                # /robot_status 토픽으로도 발행 (대시보드 브릿지용)
+                msg = String()
+                msg.data = json.dumps(payload, ensure_ascii=False)
+                self._status_pub.publish(msg)
+
+                # TCP 위치 퍼블리시
+                try:
+                    from DSR_ROBOT2 import get_current_posx, DR_BASE
+                    posx = get_current_posx(DR_BASE)[0]
+                    tcp_msg = String()
+                    tcp_msg.data = json.dumps(list(posx))
+                    self._tcp_pub.publish(tcp_msg)
+                except Exception:
+                    pass
+
+                # target_posj 퍼블리시 (현재 actual을 target으로 근사)
+                try:
+                    from DSR_ROBOT2 import get_current_posj
+                    posj = get_current_posj()
+                    tj_msg = String()
+                    tj_msg.data = json.dumps([math.degrees(v) for v in posj])
+                    self._target_posj_pub.publish(tj_msg)
+                except Exception:
+                    pass
+
+                # 토크는 _torque_publish_loop에서 0.1초마다 별도 처리
+
             except Exception as e:
                 self.node.get_logger().error(f"상태 업로드 오류: {e}")
                 time.sleep(STATUS_ERROR_RETRY_SEC)
                 continue
             time.sleep(STATUS_UPLOAD_INTERVAL_SEC)
+
+    def _torque_publish_loop(self) -> None:
+        while rclpy.ok() and self._running.is_set():
+            try:
+                torque = self.rc.get_external_torque()
+                if torque:
+                    safe = [0.0 if (v != v) else v for v in torque]
+                    t_msg = String()
+                    t_msg.data = json.dumps(safe)
+                    self._torque_pub.publish(t_msg)
+            except Exception:
+                pass
+            time.sleep(0.1)
 
     def _collision_monitor_loop(self) -> None:
         _in_collision = False
@@ -524,26 +624,16 @@ class RobotController:
                     reason = collision_reason if soft_collision else f"하드웨어 정지 (state={state})"
 
                     self.node.get_logger().error(f"🚨 충돌 감지: {reason}")
-                    self.rc.do_stop()
+                    # do_stop()/do_movej()는 drl_script_stop → rclpy.spin을 유발하므로
+                    # collision monitor 스레드에서 직접 호출하지 않고 task 스레드 큐에 위임.
                     self.sm.trigger_emergency_stop()
+                    self._cmd_queue.put("emergency_stop")
 
                     self.sm.update_status(state=RobotState.ERROR, current_task=f"🚨 충돌 감지: {reason}")
-                    
+
                     payload = self.sm.get_status_dict()
                     payload['state'] = 'collision'
                     self.repo.upload_robot_status(payload)
-
-                    self.node.get_logger().info("⏳ 외력 감지! 3초 뒤에 홈(Home) 자세로 복귀합니다...")
-                    time.sleep(3.0)
-                    self.node.get_logger().info("🏠 홈(Home) 자세로 대피를 시작합니다.")
-
-                    if hard_collision and self.recover_client.wait_for_service(timeout_sec=0.5):
-                        req = SetRobotControl.Request()
-                        req.robot_control = 2
-                        self.recover_client.call_async(req)
-                        time.sleep(0.5)
-
-                    self.rc.do_movej(self.cm.home_joint())
 
                 elif state == ROBOT_STATE_STANDBY and not soft_collision and _in_collision:
                     self.node.get_logger().info("✅ 로봇 STANDBY 복귀")

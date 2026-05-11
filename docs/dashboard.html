@@ -1,0 +1,1352 @@
+<!--
+  Robot Motion Dashboard — Doosan M0609
+  ======================================
+  Setup:
+    1. Run the WebSocket bridge:  python3 ros2_ws_bridge.py
+    2. Open this file in browser: file:///path/to/dashboard.html
+       or serve it:               python3 -m http.server 9000
+  Dependencies (loaded via CDN, internet required):
+    - Chart.js 4.x  (cdnjs)
+    - Plotly.js     (cdnjs)
+-->
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>M0609 Robot Motion Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.27.0/plotly.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/urdf-loader@0.10.5/umd/URDFLoader.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #0d1117;
+    color: #e6edf3;
+    font-family: 'Consolas', 'Monaco', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Status Bar ── */
+  #status-bar {
+    background: #161b22;
+    border-bottom: 1px solid #30363d;
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    flex-shrink: 0;
+  }
+  #status-bar h1 {
+    font-size: 14px;
+    color: #58a6ff;
+    letter-spacing: 1px;
+    margin-right: 8px;
+  }
+  .status-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+  }
+  .status-chip .label { color: #8b949e; }
+  .status-chip .value { color: #e6edf3; font-weight: bold; }
+  #ws-indicator {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: #f85149;
+    transition: background 0.3s;
+  }
+  #ws-indicator.connected { background: #3fb950; }
+  .status-chip .elapsed { color: #f0883e; }
+
+  /* ── Grid ── */
+  #grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(2, 1fr);
+    gap: 12px;
+    padding: 12px;
+    min-height: 0;
+  }
+
+  .card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-height: 0;
+  }
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 14px;
+    border-bottom: 1px solid #21262d;
+    flex-shrink: 0;
+  }
+  .card-title {
+    font-size: 12px;
+    font-weight: bold;
+    color: #58a6ff;
+    letter-spacing: 0.5px;
+  }
+  .card-meta {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    font-size: 11px;
+  }
+  .badge {
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    padding: 2px 6px;
+    color: #e6edf3;
+  }
+  .minmax { color: #8b949e; }
+
+  .card-body {
+    flex: 1;
+    position: relative;
+    padding: 8px;
+    min-height: 0;
+  }
+  .card-body canvas { width: 100% !important; height: 100% !important; }
+
+  /* ── Motion Comparison Panel ── */
+  #compare-panel {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 100;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  #compare-panel.open { display: flex; }
+  #compare-header {
+    background: #161b22;
+    border-bottom: 1px solid #30363d;
+    padding: 10px 20px;
+    display: flex; align-items: center; gap: 16px; flex-shrink: 0;
+  }
+  #compare-header h2 { font-size: 13px; color: #58a6ff; letter-spacing: 1px; flex: 1; }
+  #compare-close {
+    background: #f85149; border: none; color: #fff;
+    padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;
+  }
+  #compare-body {
+    flex: 1; display: grid;
+    grid-template-columns: 220px 1fr;
+    gap: 0; overflow: hidden;
+  }
+  #seg-list-panel {
+    background: #161b22;
+    border-right: 1px solid #30363d;
+    overflow-y: auto; padding: 10px;
+  }
+  #seg-list-panel h3 { font-size: 11px; color: #8b949e; margin-bottom: 8px; }
+  .seg-item {
+    background: #21262d; border: 1px solid #30363d;
+    border-radius: 6px; padding: 8px 10px; margin-bottom: 6px;
+    cursor: pointer; font-size: 11px; line-height: 1.6;
+  }
+  .seg-item:hover { border-color: #58a6ff; }
+  .seg-item.selected { border-color: #3fb950; background: #1a2f1a; }
+  .seg-item .seg-motion-badge {
+    display: inline-block; padding: 1px 6px; border-radius: 3px;
+    font-size: 10px; font-weight: bold; margin-left: 4px;
+  }
+  .seg-motion-badge.sync  { background: #1f4068; color: #58a6ff; }
+  .seg-motion-badge.async { background: #2d3b1e; color: #3fb950; }
+  #compare-charts {
+    flex: 1; overflow-y: auto; padding: 16px;
+    display: grid; grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto auto; gap: 16px; align-content: start;
+  }
+  .cmp-card {
+    background: #161b22; border: 1px solid #30363d;
+    border-radius: 8px; padding: 12px;
+  }
+  .cmp-card h4 { font-size: 11px; color: #8b949e; margin-bottom: 8px; }
+  .cmp-card canvas { width: 100% !important; height: 160px !important; }
+  .cmp-card.wide canvas { height: 200px !important; }
+  #cmp-summary {
+    grid-column: 1 / -1;
+    background: #161b22; border: 1px solid #30363d;
+    border-radius: 8px; padding: 14px;
+    display: flex; gap: 24px; flex-wrap: wrap;
+  }
+  .cmp-stat { font-size: 12px; }
+  .cmp-stat .label { color: #8b949e; }
+  .cmp-stat .val-sync  { color: #58a6ff; font-weight: bold; font-size: 16px; }
+  .cmp-stat .val-async { color: #3fb950; font-weight: bold; font-size: 16px; }
+  .cmp-stat .delta { color: #f0883e; font-size: 13px; }
+  #btn-compare {
+    background: #1f4068; border: 1px solid #58a6ff;
+    color: #58a6ff; padding: 4px 14px; border-radius: 4px;
+    cursor: pointer; font-size: 12px; font-family: inherit;
+  }
+  #btn-compare:hover { background: #2d5a8e; }
+  #seg-count-badge {
+    background: #f0883e; color: #000; border-radius: 10px;
+    padding: 1px 7px; font-size: 11px; font-weight: bold;
+  }
+
+  /* ── URDF Viewer Panel ── */
+  #urdf-panel {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.92);
+    z-index: 200;
+    flex-direction: column;
+  }
+  #urdf-panel.open { display: flex; }
+  #urdf-header {
+    background: #161b22;
+    border-bottom: 1px solid #30363d;
+    padding: 10px 20px;
+    display: flex; align-items: center; gap: 16px; flex-shrink: 0;
+  }
+  #urdf-header h2 { font-size: 13px; color: #3fb950; letter-spacing: 1px; flex: 1; }
+  #urdf-close {
+    background: #f85149; border: none; color: #fff;
+    padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;
+  }
+  #urdf-canvas-wrap {
+    flex: 1; position: relative; overflow: hidden;
+  }
+  #urdf-canvas-wrap canvas { display: block; width: 100% !important; height: 100% !important; }
+  #urdf-overlay {
+    position: absolute; top: 12px; left: 12px;
+    background: rgba(22,27,34,0.85);
+    border: 1px solid #30363d; border-radius: 8px;
+    padding: 10px 14px; font-size: 11px; line-height: 1.8;
+    pointer-events: none;
+  }
+  #urdf-overlay .ov-label { color: #8b949e; }
+  #urdf-overlay .ov-val   { color: #e6edf3; font-weight: bold; }
+  #urdf-mode-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 10px; font-weight: bold;
+  }
+  #urdf-mode-badge.sync  { background: #1f4068; color: #58a6ff; }
+  #urdf-mode-badge.async { background: #2d3b1e; color: #3fb950; }
+  #urdf-status { color: #f0883e; font-size: 11px; }
+  #btn-urdf {
+    background: #1a2f1a; border: 1px solid #3fb950;
+    color: #3fb950; padding: 4px 14px; border-radius: 4px;
+    cursor: pointer; font-size: 12px; font-family: inherit;
+  }
+  #btn-urdf:hover { background: #2d4a2d; }
+</style>
+</head>
+<body>
+
+<!-- ── Status Bar ── -->
+<div id="status-bar">
+  <h1>▶ M0609 DASHBOARD</h1>
+  <div class="status-chip">
+    <div id="ws-indicator"></div>
+    <span class="label">WebSocket</span>
+    <span class="value" id="ws-status">DISCONNECTED</span>
+  </div>
+  <div class="status-chip">
+    <span class="label">Mode</span>
+    <span class="value" id="robot-mode">—</span>
+  </div>
+  <div class="status-chip">
+    <span class="label">Stage</span>
+    <span class="value" id="active-stage">—</span>
+  </div>
+  <div class="status-chip">
+    <span class="label">Elapsed</span>
+    <span class="value elapsed" id="elapsed-time">00:00:00</span>
+  </div>
+  <div class="status-chip">
+    <span class="label">SIM</span>
+    <span class="value" id="sim-status" style="color:#f0883e;">대기 중</span>
+  </div>
+  <button id="btn-compare" onclick="openCompare()">
+    ⚡ 동기 vs 비동기 분석 <span id="seg-count-badge">0</span>
+  </button>
+  <button id="btn-urdf" onclick="openUrdf()">
+    🤖 URDF 뷰어
+  </button>
+</div>
+
+<!-- ── URDF Viewer Panel ── -->
+<div id="urdf-panel">
+  <div id="urdf-header">
+    <h2>🤖 M0609 실시간 URDF 뷰어 — 동기/비동기 모션 재생</h2>
+    <span id="urdf-status">로봇 URDF 로드 대기 중...</span>
+    <span id="urdf-mode-badge" class="sync">SYNC</span>
+    <button id="urdf-close" onclick="closeUrdf()">✕ 닫기</button>
+  </div>
+  <div id="urdf-canvas-wrap">
+    <canvas id="urdf-canvas"></canvas>
+    <div id="urdf-overlay">
+      <div><span class="ov-label">J1: </span><span class="ov-val" id="ov-j1">0.0°</span>
+           <span class="ov-label">  J2: </span><span class="ov-val" id="ov-j2">0.0°</span>
+           <span class="ov-label">  J3: </span><span class="ov-val" id="ov-j3">0.0°</span></div>
+      <div><span class="ov-label">J4: </span><span class="ov-val" id="ov-j4">0.0°</span>
+           <span class="ov-label">  J5: </span><span class="ov-val" id="ov-j5">0.0°</span>
+           <span class="ov-label">  J6: </span><span class="ov-val" id="ov-j6">0.0°</span></div>
+      <div><span class="ov-label">TCP: </span><span class="ov-val" id="ov-tcp">— mm</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Motion Comparison Panel ── -->
+<div id="compare-panel">
+  <div id="compare-header">
+    <h2>⚡ 서브반찬 모션 비교 분석 — 동기(Sync) vs 비동기(Async·radius blending)</h2>
+    <span style="font-size:11px;color:#8b949e;">세그먼트를 클릭하면 오른쪽에 그래프가 표시됩니다</span>
+    <button id="compare-close" onclick="closeCompare()">✕ 닫기</button>
+  </div>
+  <div id="compare-body">
+    <div id="seg-list-panel">
+      <h3>수집된 세그먼트 <span id="seg-total">0</span>개</h3>
+      <div id="seg-items"></div>
+    </div>
+    <div id="compare-charts">
+      <div id="cmp-summary">
+        <div class="cmp-stat">
+          <div class="label">동기 소요시간</div>
+          <div class="val-sync" id="cmp-t-sync">—</div>
+        </div>
+        <div class="cmp-stat">
+          <div class="label">비동기 소요시간</div>
+          <div class="val-async" id="cmp-t-async">—</div>
+        </div>
+        <div class="cmp-stat">
+          <div class="label">단축 시간</div>
+          <div class="delta" id="cmp-delta">—</div>
+        </div>
+        <div class="cmp-stat">
+          <div class="label">효율 향상</div>
+          <div class="delta" id="cmp-pct">—</div>
+        </div>
+        <div class="cmp-stat" style="margin-left:auto;">
+          <div class="label">최대 속도 (동기)</div>
+          <div class="val-sync" id="cmp-vmax-sync">—</div>
+        </div>
+        <div class="cmp-stat">
+          <div class="label">최대 속도 (비동기)</div>
+          <div class="val-async" id="cmp-vmax-async">—</div>
+        </div>
+      </div>
+      <div class="cmp-card wide" style="grid-column:1/-1;">
+        <h4>① 관절 속도 프로필 비교 (J1~J6) — 실선: 동기 / 점선: 비동기</h4>
+        <canvas id="cmp-vel-chart"></canvas>
+      </div>
+      <div class="cmp-card">
+        <h4>② 이동시간 비교 (ms)</h4>
+        <canvas id="cmp-bar-chart"></canvas>
+      </div>
+      <div class="cmp-card">
+        <h4>③ 최대 관절속도 비교 (deg/s)</h4>
+        <canvas id="cmp-vmax-chart"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Graph Grid ── -->
+<div id="grid">
+
+  <!-- Graph 1: Joint Velocity -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">① Joint Velocity Profile</span>
+      <div class="card-meta">
+        <span class="badge" id="vel-badge">— deg/s</span>
+        <span class="minmax" id="vel-minmax"></span>
+      </div>
+    </div>
+    <div class="card-body"><canvas id="chart-vel"></canvas></div>
+  </div>
+
+  <!-- Graph 2: Joint Torque -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">② Joint Torque</span>
+      <div class="card-meta">
+        <span class="badge" id="eff-badge">— Nm</span>
+        <span class="minmax" id="eff-minmax"></span>
+      </div>
+    </div>
+    <div class="card-body"><canvas id="chart-eff"></canvas></div>
+  </div>
+
+  <!-- Graph 3: TCP Trajectory (Plotly 3D) -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">③ TCP Trajectory (3D)</span>
+      <div class="card-meta">
+        <span class="badge" id="tcp-badge">—</span>
+      </div>
+    </div>
+    <div class="card-body" style="padding:0;">
+      <div id="chart-tcp" style="width:100%;height:100%;"></div>
+    </div>
+  </div>
+
+  <!-- Graph 4: Cycle Time (Bar) -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">④ Cycle Time per Stage</span>
+      <div class="card-meta">
+        <span class="badge" id="stage-badge">—</span>
+      </div>
+    </div>
+    <div class="card-body"><canvas id="chart-stage"></canvas></div>
+  </div>
+
+  <!-- Graph 5: Joint Tracking Error -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">⑤ Joint Tracking Error</span>
+      <div class="card-meta">
+        <span class="badge" id="err-badge">— deg</span>
+        <span class="minmax" id="err-minmax"></span>
+      </div>
+    </div>
+    <div class="card-body"><canvas id="chart-err"></canvas></div>
+  </div>
+
+  <!-- Graph 6: Collision Response -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">⑥ Collision Detection</span>
+      <div class="card-meta">
+        <span class="badge" id="col-badge">— Nm</span>
+        <span class="minmax" id="col-minmax"></span>
+      </div>
+    </div>
+    <div class="card-body"><canvas id="chart-col"></canvas></div>
+  </div>
+
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════
+// Constants
+// ══════════════════════════════════════════════════════════════════
+const WS_URL        = 'ws://localhost:8765';
+const WINDOW_SEC    = 10;        // rolling window
+const TICK_INTERVAL = 50;        // ms between fake-demo ticks (when no WS)
+
+const JOINT_COLORS = [
+  '#58a6ff', '#3fb950', '#f0883e', '#d2a8ff', '#ffa657', '#ff7b72'
+];
+const JOINT_LABELS = ['J1','J2','J3','J4','J5','J6'];
+
+// M0609 rated torques (Nm) per joint
+const TORQUE_LIMITS = [100, 100, 60, 30, 30, 15];
+
+const STAGE_LABELS = [
+  'Tray\nSetup', 'Sub\nDishes', 'Main\nDish', 'Rice', 'Delivery'
+];
+
+// ══════════════════════════════════════════════════════════════════
+// State
+// ══════════════════════════════════════════════════════════════════
+const MAX_PTS = 200;
+
+function makeRingBuffer(n) {
+  const buf = { data: new Array(n).fill(null), head: 0, size: 0, cap: n };
+  buf.push = function(v) {
+    this.data[this.head] = v;
+    this.head = (this.head + 1) % this.cap;
+    if (this.size < this.cap) this.size++;
+  };
+  buf.toArray = function() {
+    if (this.size < this.cap) return this.data.slice(0, this.size);
+    return [...this.data.slice(this.head), ...this.data.slice(0, this.head)];
+  };
+  return buf;
+}
+
+const state = {
+  times:       makeRingBuffer(MAX_PTS),
+  vel:         Array.from({length:6}, () => makeRingBuffer(MAX_PTS)),
+  eff:         Array.from({length:6}, () => makeRingBuffer(MAX_PTS)),
+  err:         Array.from({length:6}, () => makeRingBuffer(MAX_PTS)),
+  col:         makeRingBuffer(MAX_PTS),
+  colEvents:   [],   // timestamps of collision events
+  targetPosj:  null,
+  actualPosj:  null,
+  tcpX: [], tcpY: [], tcpZ: [],
+  stageTimes:  [0,0,0,0,0],
+  activeStage: -1,
+  startTime:   Date.now(),
+};
+
+// ══════════════════════════════════════════════════════════════════
+// Chart helpers
+// ══════════════════════════════════════════════════════════════════
+Chart.defaults.color = '#8b949e';
+Chart.defaults.borderColor = '#21262d';
+
+const chartDefaults = {
+  responsive: true,
+  maintainAspectRatio: false,
+  animation: false,
+  plugins: { legend: { labels: { boxWidth: 10, font: { size: 10 } } } },
+  scales: {
+    x: { ticks: { maxTicksLimit: 6, font: { size: 9 } }, grid: { color: '#21262d' } },
+    y: { ticks: { font: { size: 9 } }, grid: { color: '#21262d' } },
+  }
+};
+
+function timeLabels() {
+  return state.times.toArray().map(t => ((t - state.startTime) / 1000).toFixed(1) + 's');
+}
+
+function makeLineDataset(label, color, buf) {
+  return { label, borderColor: color, backgroundColor: 'transparent',
+           borderWidth: 1.5, pointRadius: 0, data: buf.toArray() };
+}
+
+// ── Graph 1: Velocity ──────────────────────────────────────────
+const velCtx = document.getElementById('chart-vel').getContext('2d');
+const velChart = new Chart(velCtx, {
+  type: 'line',
+  data: { labels: [], datasets: JOINT_LABELS.map((l,i) => makeLineDataset(l, JOINT_COLORS[i], state.vel[i])) },
+  options: {
+    ...JSON.parse(JSON.stringify(chartDefaults)),
+    plugins: {
+      ...chartDefaults.plugins,
+      annotation: undefined,
+    },
+    scales: {
+      x: chartDefaults.scales.x,
+      y: {
+        ...chartDefaults.scales.y,
+        title: { display: true, text: 'deg/s', font: { size: 10 } },
+      }
+    }
+  }
+});
+
+// Danger band plugin for velocity chart
+const velDangerPlugin = {
+  id: 'velDanger',
+  beforeDraw(chart) {
+    const { ctx, chartArea: a, scales: { y } } = chart;
+    if (!a) return;
+    const y180  = y.getPixelForValue(180);
+    const yTop  = y.getPixelForValue(y.max);
+    const yn180 = y.getPixelForValue(-180);
+    const yBot  = y.getPixelForValue(y.min);
+    ctx.save();
+    ctx.fillStyle = 'rgba(248,81,73,0.15)';
+    ctx.fillRect(a.left, yTop,   a.width, y180 - yTop);
+    ctx.fillRect(a.left, yn180,  a.width, yBot - yn180);
+    ctx.strokeStyle = 'rgba(248,81,73,0.6)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4,4]);
+    [y180, yn180].forEach(py => {
+      ctx.beginPath(); ctx.moveTo(a.left, py); ctx.lineTo(a.right, py); ctx.stroke();
+    });
+    ctx.restore();
+  }
+};
+Chart.register(velDangerPlugin);
+
+// ── Graph 2: Torque ────────────────────────────────────────────
+const effCtx = document.getElementById('chart-eff').getContext('2d');
+const effChart = new Chart(effCtx, {
+  type: 'line',
+  data: { labels: [], datasets: JOINT_LABELS.map((l,i) => makeLineDataset(l, JOINT_COLORS[i], state.eff[i])) },
+  options: {
+    ...JSON.parse(JSON.stringify(chartDefaults)),
+    scales: {
+      x: chartDefaults.scales.x,
+      y: { ...chartDefaults.scales.y, title: { display: true, text: 'Nm', font: { size: 10 } } }
+    }
+  }
+});
+
+// Torque limit plugin
+const torqueLimitPlugin = {
+  id: 'torqueLimits',
+  beforeDraw(chart) {
+    const { ctx, chartArea: a, scales: { y } } = chart;
+    if (!a) return;
+    ctx.save();
+    ctx.setLineDash([5,3]);
+    ctx.lineWidth = 1;
+    TORQUE_LIMITS.forEach((lim, i) => {
+      ctx.strokeStyle = JOINT_COLORS[i];
+      ctx.globalAlpha = 0.5;
+      [lim, -lim].forEach(v => {
+        if (v < y.min || v > y.max) return;
+        const py = y.getPixelForValue(v);
+        ctx.beginPath(); ctx.moveTo(a.left, py); ctx.lineTo(a.right, py); ctx.stroke();
+      });
+    });
+    ctx.restore();
+  }
+};
+Chart.register(torqueLimitPlugin);
+
+// ── Graph 3: TCP 3D (Plotly) ───────────────────────────────────
+Plotly.newPlot('chart-tcp', [{
+  type: 'scatter3d', mode: 'lines+markers',
+  x: [], y: [], z: [],
+  line: { color: [], colorscale: 'RdBu', width: 3 },
+  marker: { size: 3, color: [], colorscale: 'RdBu' },
+  name: 'TCP Path'
+}, {
+  type: 'scatter3d', mode: 'markers',
+  x: [0], y: [0], z: [0],
+  marker: { size: 10, color: '#f0883e', symbol: 'circle' },
+  name: 'Current'
+}], {
+  paper_bgcolor: '#161b22',
+  plot_bgcolor:  '#161b22',
+  scene: {
+    bgcolor: '#0d1117',
+    xaxis: { title: 'X (mm)', color: '#8b949e', gridcolor: '#21262d' },
+    yaxis: { title: 'Y (mm)', color: '#8b949e', gridcolor: '#21262d' },
+    zaxis: { title: 'Z (mm)', color: '#8b949e', gridcolor: '#21262d' },
+  },
+  margin: { l:0, r:0, t:0, b:0 },
+  legend: { font: { color: '#8b949e', size: 10 }, bgcolor: 'transparent' },
+  font: { color: '#8b949e' }
+}, { responsive: true, displayModeBar: false });
+
+// ── Graph 4: Stage Bar ─────────────────────────────────────────
+const stageCtx = document.getElementById('chart-stage').getContext('2d');
+const stageChart = new Chart(stageCtx, {
+  type: 'bar',
+  data: {
+    labels: ['Tray Setup','Sub Dishes','Main Dish','Rice','Delivery'],
+    datasets: [{
+      label: 'Elapsed (s)',
+      data: [0,0,0,0,0],
+      backgroundColor: STAGE_LABELS.map(() => '#21262d'),
+      borderColor: STAGE_LABELS.map(() => '#30363d'),
+      borderWidth: 1,
+      borderRadius: 4,
+    }]
+  },
+  options: {
+    ...JSON.parse(JSON.stringify(chartDefaults)),
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { ...chartDefaults.scales.x, ticks: { font: { size: 9 } } },
+      y: { ...chartDefaults.scales.y, title: { display: true, text: 'seconds', font: { size: 10 } } }
+    }
+  }
+});
+
+// ── Graph 5: Tracking Error ────────────────────────────────────
+const errCtx = document.getElementById('chart-err').getContext('2d');
+const errChart = new Chart(errCtx, {
+  type: 'line',
+  data: { labels: [], datasets: JOINT_LABELS.map((l,i) => makeLineDataset(l, JOINT_COLORS[i], state.err[i])) },
+  options: {
+    ...JSON.parse(JSON.stringify(chartDefaults)),
+    scales: {
+      x: chartDefaults.scales.x,
+      y: { ...chartDefaults.scales.y, title: { display: true, text: 'error (deg)', font: { size: 10 } } }
+    }
+  }
+});
+
+// Error band plugin (±0.5 deg shaded green)
+const errBandPlugin = {
+  id: 'errBand',
+  beforeDraw(chart) {
+    const { ctx, chartArea: a, scales: { y } } = chart;
+    if (!a) return;
+    const yp = y.getPixelForValue(0.5);
+    const yn = y.getPixelForValue(-0.5);
+    ctx.save();
+    ctx.fillStyle = 'rgba(63,185,80,0.12)';
+    ctx.fillRect(a.left, yp, a.width, yn - yp);
+    ctx.strokeStyle = 'rgba(63,185,80,0.4)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3,3]);
+    [yp, yn].forEach(py => {
+      ctx.beginPath(); ctx.moveTo(a.left, py); ctx.lineTo(a.right, py); ctx.stroke();
+    });
+    ctx.restore();
+  }
+};
+Chart.register(errBandPlugin);
+
+// ── Graph 6: Collision ─────────────────────────────────────────
+const colCtx = document.getElementById('chart-col').getContext('2d');
+const colChart = new Chart(colCtx, {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [{
+      label: '|τ_ext| (Nm)',
+      borderColor: '#ff7b72',
+      backgroundColor: 'rgba(255,123,114,0.08)',
+      fill: true,
+      borderWidth: 1.5,
+      pointRadius: 0,
+      data: []
+    }]
+  },
+  options: {
+    ...JSON.parse(JSON.stringify(chartDefaults)),
+    plugins: { legend: { labels: { boxWidth: 10, font: { size: 10 } } } },
+    scales: {
+      x: chartDefaults.scales.x,
+      y: { ...chartDefaults.scales.y, title: { display: true, text: 'Nm', font: { size: 10 } } }
+    }
+  }
+});
+
+// Collision event plugin (vertical red lines)
+const colEventPlugin = {
+  id: 'colEvents',
+  beforeDraw(chart) {
+    const { ctx, chartArea: a, scales: { x } } = chart;
+    if (!a || !x.ticks.length) return;
+    const labels = chart.data.labels;
+    if (!labels || !labels.length) return;
+    const now = (Date.now() - state.startTime) / 1000;
+    ctx.save();
+    ctx.strokeStyle = '#f85149';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([]);
+    state.colEvents.forEach(evtTime => {
+      const relTime = (evtTime - state.startTime) / 1000;
+      const frac = (relTime - (now - WINDOW_SEC)) / WINDOW_SEC;
+      if (frac < 0 || frac > 1) return;
+      const px = a.left + frac * a.width;
+      ctx.beginPath(); ctx.moveTo(px, a.top); ctx.lineTo(px, a.bottom); ctx.stroke();
+    });
+    ctx.restore();
+  }
+};
+Chart.register(colEventPlugin);
+
+// ══════════════════════════════════════════════════════════════════
+// Render loop
+// ══════════════════════════════════════════════════════════════════
+function renderAll() {
+  const labels = timeLabels();
+
+  // Graph 1 — velocity
+  velChart.data.labels = labels;
+  velChart.data.datasets.forEach((ds, i) => { ds.data = state.vel[i].toArray(); });
+  velChart.update('none');
+
+  const allVel = state.vel.flatMap(b => b.toArray()).filter(v => v !== null);
+  if (allVel.length) {
+    const mx = Math.max(...allVel.map(Math.abs));
+    document.getElementById('vel-badge').textContent = mx.toFixed(1) + ' deg/s';
+    document.getElementById('vel-minmax').textContent =
+      `min ${Math.min(...allVel).toFixed(1)} / max ${Math.max(...allVel).toFixed(1)}`;
+  }
+
+  // Graph 2 — torque
+  effChart.data.labels = labels;
+  effChart.data.datasets.forEach((ds, i) => { ds.data = state.eff[i].toArray(); });
+  effChart.update('none');
+
+  const allEff = state.eff.flatMap(b => b.toArray()).filter(v => v !== null);
+  if (allEff.length) {
+    document.getElementById('eff-badge').textContent = Math.max(...allEff.map(Math.abs)).toFixed(1) + ' Nm';
+    document.getElementById('eff-minmax').textContent =
+      `min ${Math.min(...allEff).toFixed(1)} / max ${Math.max(...allEff).toFixed(1)}`;
+  }
+
+  // Graph 3 — TCP
+  if (state.tcpX.length > 1) {
+    const n = state.tcpX.length;
+    const gradient = Array.from({length: n}, (_, i) => i / (n - 1));
+    Plotly.restyle('chart-tcp', {
+      x: [state.tcpX], y: [state.tcpY], z: [state.tcpZ],
+      'line.color': [gradient], 'marker.color': [gradient]
+    }, [0]);
+    Plotly.restyle('chart-tcp', {
+      x: [[state.tcpX.at(-1)]], y: [[state.tcpY.at(-1)]], z: [[state.tcpZ.at(-1)]]
+    }, [1]);
+    const last = `(${state.tcpX.at(-1).toFixed(0)}, ${state.tcpY.at(-1).toFixed(0)}, ${state.tcpZ.at(-1).toFixed(0)}) mm`;
+    document.getElementById('tcp-badge').textContent = last;
+  }
+
+  // Graph 4 — stage bar
+  const stageColors = state.stageTimes.map((_, i) =>
+    i === state.activeStage ? '#f0883e' : '#21262d'
+  );
+  stageChart.data.datasets[0].data = [...state.stageTimes];
+  stageChart.data.datasets[0].backgroundColor = stageColors;
+  stageChart.update('none');
+  if (state.activeStage >= 0) {
+    document.getElementById('stage-badge').textContent =
+      STAGE_LABELS[state.activeStage].replace('\n', ' ') + ' — ' +
+      state.stageTimes[state.activeStage].toFixed(1) + 's';
+  }
+
+  // Graph 5 — tracking error
+  errChart.data.labels = labels;
+  errChart.data.datasets.forEach((ds, i) => { ds.data = state.err[i].toArray(); });
+  errChart.update('none');
+
+  const allErr = state.err.flatMap(b => b.toArray()).filter(v => v !== null);
+  if (allErr.length) {
+    const mx = Math.max(...allErr.map(Math.abs));
+    document.getElementById('err-badge').textContent = mx.toFixed(3) + ' deg';
+    document.getElementById('err-minmax').textContent =
+      `min ${Math.min(...allErr).toFixed(3)} / max ${Math.max(...allErr).toFixed(3)}`;
+  }
+
+  // Graph 6 — collision
+  colChart.data.labels = labels;
+  colChart.data.datasets[0].data = state.col.toArray();
+  colChart.update('none');
+
+  const colArr = state.col.toArray().filter(v => v !== null);
+  if (colArr.length) {
+    const mx = Math.max(...colArr);
+    document.getElementById('col-badge').textContent = mx.toFixed(1) + ' Nm';
+    document.getElementById('col-minmax').textContent =
+      `events: ${state.colEvents.length}`;
+  }
+
+  // Elapsed
+  const sec = Math.floor((Date.now() - state.startTime) / 1000);
+  const hh = String(Math.floor(sec / 3600)).padStart(2,'0');
+  const mm = String(Math.floor((sec % 3600) / 60)).padStart(2,'0');
+  const ss = String(sec % 60).padStart(2,'0');
+  document.getElementById('elapsed-time').textContent = `${hh}:${mm}:${ss}`;
+
+  requestAnimationFrame(renderAll);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// WebSocket
+// ══════════════════════════════════════════════════════════════════
+function applyMessage(msg) {
+  const now = Date.now();
+  const type = msg.type;
+
+  if (type === 'joint_states') {
+    state.times.push(now);
+    if (msg.vel) msg.vel.forEach((v, i) => state.vel[i] && state.vel[i].push(v));
+    if (state.targetPosj && msg.pos) {
+      msg.pos.forEach((v, i) => { if (state.err[i]) state.err[i].push(state.targetPosj[i] - v); });
+    }
+    if (msg.mode) {
+      document.getElementById('robot-mode').textContent = msg.mode;
+      const badge = document.getElementById('urdf-mode-badge');
+      if (badge) {
+        const isAsync = msg.mode.includes('ASYNC');
+        badge.textContent = isAsync ? 'ASYNC' : 'SYNC';
+        badge.className = 'urdf-mode-badge ' + (isAsync ? 'async' : 'sync');
+      }
+    }
+  }
+
+  else if (type === 'torque') {
+    if (msg.eff) {
+      msg.eff.forEach((v, i) => state.eff[i] && state.eff[i].push(v));
+      const mag = Math.sqrt(msg.eff.reduce((s, v) => s + v*v, 0));
+      state.col.push(mag);
+    }
+  }
+
+  else if (type === 'posx') {
+    const [x,y,z] = msg.data;
+    state.tcpX.push(x); state.tcpY.push(y); state.tcpZ.push(z);
+    if (state.tcpX.length > 1000) {
+      state.tcpX.shift(); state.tcpY.shift(); state.tcpZ.shift();
+    }
+    const ovTcp = document.getElementById('ov-tcp');
+    if (ovTcp) ovTcp.textContent = `(${x.toFixed(0)}, ${y.toFixed(0)}, ${z.toFixed(0)}) mm`;
+  }
+
+  else if (type === 'stage_time') {
+    state.stageTimes  = msg.stages;
+    state.activeStage = msg.active;
+    const names = ['Tray Setup','Sub Dishes','Main Dish','Rice','Delivery'];
+    document.getElementById('active-stage').textContent =
+      msg.active >= 0 ? `[${msg.active+1}] ${names[msg.active]}` : '—';
+  }
+
+  else if (type === 'target_posj') {
+    state.targetPosj = msg.data;
+  }
+
+  else if (type === 'actual_posj') {
+    state.actualPosj = msg.data;
+  }
+
+  else if (type === 'collision') {
+    state.colEvents.push(msg.timestamp * 1000);
+    const cutoff = Date.now() - 60000;
+    state.colEvents = state.colEvents.filter(t => t > cutoff);
+  }
+
+  else if (type === 'motion_segment' && msg.seg) {
+    onSegmentReceived(msg.seg);
+  }
+
+  else if (type === 'auto_compare') {
+    if (!cmpVelChart) initCmpCharts();
+    // 세그먼트 데이터만 선택해 두고, 패널은 사용자가 직접 열기
+    const trySelect = () => {
+      const s = msg.sync_seg_id  && cmpSegs[msg.sync_seg_id];
+      const a = msg.async_seg_id && cmpSegs[msg.async_seg_id];
+      if (s) selectSeg('sync',  msg.sync_seg_id);
+      if (a) selectSeg('async', msg.async_seg_id);
+      if (s || a) {
+        console.log(`[비교 준비 완료] ⚡ 버튼을 클릭하면 결과를 볼 수 있습니다.`,
+          `sync=${msg.sync_seg_id}`, `async=${msg.async_seg_id}`);
+        // 뱃지 숫자 강조 (이미 onSegmentReceived에서 올라감)
+        const badge = document.getElementById('seg-count-badge');
+        if (badge) badge.style.animation = 'none';
+      }
+    };
+    trySelect();
+    setTimeout(trySelect, 300);
+  }
+
+  else if (type === 'urdf_url') {
+    initUrdfViewer();
+    loadUrdf(msg.url);
+    openUrdf();
+  }
+
+  else if (type === 'urdf_joints') {
+    applyUrdfJoints(msg.joints);
+  }
+
+  else if (type === 'sim_status') {
+    const el = document.getElementById('sim-status');
+    if (el) el.textContent = msg.text || '';
+    const uEl = document.getElementById('urdf-status');
+    if (uEl && urdfReady) uEl.textContent = msg.text || '';
+  }
+}
+
+function connectWS() {
+  const ws = new WebSocket(WS_URL);
+  const ind = document.getElementById('ws-indicator');
+  const lbl = document.getElementById('ws-status');
+
+  ws.onopen = () => {
+    _wsConnected = true;
+    stopDemo();
+    ind.className = 'connected';
+    lbl.textContent = 'CONNECTED';
+  };
+  ws.onmessage = e => {
+    try { applyMessage(JSON.parse(e.data)); } catch {}
+  };
+  ws.onclose = () => {
+    _wsConnected = false;
+    startDemo();
+    ind.className = '';
+    lbl.textContent = 'DISCONNECTED';
+    setTimeout(connectWS, 2000);
+  };
+  ws.onerror = () => ws.close();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// Demo data (only when WebSocket is NOT connected)
+// ══════════════════════════════════════════════════════════════════
+let _demoT = 0;
+let _demoTimer = null;
+let _wsConnected = false;
+
+function startDemo() {
+  if (_demoTimer !== null) return;
+  _demoTimer = setInterval(demoTick, TICK_INTERVAL);
+}
+
+function stopDemo() {
+  if (_demoTimer === null) return;
+  clearInterval(_demoTimer);
+  _demoTimer = null;
+}
+
+function demoTick() {
+  if (_wsConnected) { stopDemo(); return; }
+  _demoT += 0.05;
+  const now = Date.now();
+  state.times.push(now);
+
+  for (let i = 0; i < 6; i++) {
+    const freq = 0.3 + i * 0.15;
+    const vel = 40 * Math.sin(2 * Math.PI * freq * _demoT + i) * (1 + 0.2 * Math.sin(_demoT));
+    state.vel[i].push(vel);
+    const eff = TORQUE_LIMITS[i] * 0.4 * Math.sin(2 * Math.PI * 0.2 * _demoT + i * 0.8);
+    state.eff[i].push(eff);
+    const err = 0.3 * Math.sin(2 * Math.PI * 0.5 * _demoT + i);
+    state.err[i].push(err);
+  }
+  const mag = 5 + 3 * Math.abs(Math.sin(_demoT * 0.7));
+  state.col.push(mag);
+
+  const r = 200;
+  state.tcpX.push(r * Math.cos(_demoT * 0.3));
+  state.tcpY.push(r * Math.sin(_demoT * 0.3));
+  state.tcpZ.push(300 + 80 * Math.sin(_demoT * 0.5));
+  if (state.tcpX.length > 1000) { state.tcpX.shift(); state.tcpY.shift(); state.tcpZ.shift(); }
+
+  state.activeStage = Math.floor(_demoT / 5) % 5;
+  state.stageTimes[state.activeStage] = (_demoT % 5);
+  const names = ['Tray Setup','Sub Dishes','Main Dish','Rice','Delivery'];
+  document.getElementById('active-stage').textContent = `[${state.activeStage+1}] ${names[state.activeStage]}`;
+  document.getElementById('robot-mode').textContent = 'DEMO';
+}
+
+startDemo();
+
+// ══════════════════════════════════════════════════════════════════
+// Motion Comparison Analysis
+// ══════════════════════════════════════════════════════════════════
+const cmpSegs = {};   // seg_id → segment data (with pos/vel/ts)
+let cmpSelectedIds = { sync: null, async: null };
+
+// Chart.js 인스턴스
+let cmpVelChart = null, cmpBarChart = null, cmpVmaxChart = null;
+
+function initCmpCharts() {
+  const velCtx  = document.getElementById('cmp-vel-chart').getContext('2d');
+  const barCtx  = document.getElementById('cmp-bar-chart').getContext('2d');
+  const vmxCtx  = document.getElementById('cmp-vmax-chart').getContext('2d');
+
+  // ① 속도 프로필: sync(실선) + async(점선) 6개 관절씩
+  const velDs = [];
+  for (let i = 0; i < 6; i++) {
+    velDs.push({ label: `J${i+1} sync`,  data: [], borderColor: JOINT_COLORS[i],
+                 borderWidth: 1.5, pointRadius: 0, tension: 0.3, borderDash: [] });
+    velDs.push({ label: `J${i+1} async`, data: [], borderColor: JOINT_COLORS[i],
+                 borderWidth: 1.5, pointRadius: 0, tension: 0.3, borderDash: [4,3],
+                 borderDashOffset: 0 });
+  }
+  cmpVelChart = new Chart(velCtx, {
+    type: 'line',
+    data: { labels: [], datasets: velDs },
+    options: {
+      animation: false, responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false },
+                 tooltip: { mode: 'index', intersect: false } },
+      scales: {
+        x: { title: { display: true, text: '시간 (ms)', color: '#8b949e', font: { size: 10 } },
+             ticks: { color: '#8b949e', maxTicksLimit: 10, font: { size: 9 } },
+             grid: { color: '#21262d' } },
+        y: { title: { display: true, text: '속도 (deg/s)', color: '#8b949e', font: { size: 10 } },
+             ticks: { color: '#8b949e', font: { size: 9 } }, grid: { color: '#21262d' } },
+      },
+    },
+  });
+
+  // ② 소요시간 바 차트
+  cmpBarChart = new Chart(barCtx, {
+    type: 'bar',
+    data: {
+      labels: ['동기 (Sync)', '비동기 (Async)'],
+      datasets: [{ label: '소요시간 (ms)', data: [0, 0],
+                   backgroundColor: ['#1f4068', '#2d3b1e'],
+                   borderColor: ['#58a6ff', '#3fb950'], borderWidth: 2 }],
+    },
+    options: {
+      animation: false, responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+      plugins: { legend: { display: false },
+                 tooltip: { callbacks: { label: ctx => ` ${ctx.raw} ms` } } },
+      scales: {
+        x: { title: { display: true, text: 'ms', color: '#8b949e', font: { size: 10 } },
+             ticks: { color: '#8b949e', font: { size: 9 } }, grid: { color: '#21262d' } },
+        y: { ticks: { color: '#e6edf3', font: { size: 10 } }, grid: { color: '#21262d' } },
+      },
+    },
+  });
+
+  // ③ 최대 관절속도 바 차트
+  cmpVmaxChart = new Chart(vmxCtx, {
+    type: 'bar',
+    data: {
+      labels: ['J1','J2','J3','J4','J5','J6'],
+      datasets: [
+        { label: '동기', data: [0,0,0,0,0,0], backgroundColor: '#1f4068', borderColor: '#58a6ff', borderWidth: 1.5 },
+        { label: '비동기', data: [0,0,0,0,0,0], backgroundColor: '#2d3b1e', borderColor: '#3fb950', borderWidth: 1.5 },
+      ],
+    },
+    options: {
+      animation: false, responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: '#e6edf3', font: { size: 10 } } },
+                 tooltip: { callbacks: { label: ctx => ` ${ctx.raw.toFixed(1)} deg/s` } } },
+      scales: {
+        x: { ticks: { color: '#e6edf3', font: { size: 10 } }, grid: { color: '#21262d' } },
+        y: { title: { display: true, text: 'deg/s', color: '#8b949e', font: { size: 10 } },
+             ticks: { color: '#8b949e', font: { size: 9 } }, grid: { color: '#21262d' } },
+      },
+    },
+  });
+}
+
+function onSegmentReceived(seg) {
+  cmpSegs[seg.seg_id] = seg;
+  refreshSegList();
+  document.getElementById('seg-count-badge').textContent = Object.keys(cmpSegs).length;
+}
+
+function refreshSegList() {
+  const segs = Object.values(cmpSegs);
+  document.getElementById('seg-total').textContent = segs.length;
+  const container = document.getElementById('seg-items');
+  container.innerHTML = '';
+
+  segs.forEach(s => {
+    const motionClass = s.motion === 'async' ? 'async' : 'sync';
+    const motionLabel = s.motion === 'async' ? 'ASYNC' : 'SYNC';
+    const isSelected = (cmpSelectedIds[s.motion] === s.seg_id);
+    const div = document.createElement('div');
+    div.className = 'seg-item' + (isSelected ? ' selected' : '');
+    div.innerHTML = `
+      <span>${s.label}</span>
+      <span class="seg-motion-badge ${motionClass}">${motionLabel}</span><br>
+      <span style="color:#8b949e;">${s.duration_ms} ms · ${s.n_samples} samples</span>
+    `;
+    div.onclick = () => selectSeg(s.motion, s.seg_id);
+    container.appendChild(div);
+  });
+}
+
+function selectSeg(motion, seg_id) {
+  cmpSelectedIds[motion] = seg_id;
+  refreshSegList();
+  renderCmpCharts();
+}
+
+function renderCmpCharts() {
+  const syncSeg  = cmpSelectedIds.sync  ? cmpSegs[cmpSelectedIds.sync]  : null;
+  const asyncSeg = cmpSelectedIds.async ? cmpSegs[cmpSelectedIds.async] : null;
+
+  // ── 속도 프로필 ────────────────────────────────────────────────
+  if (syncSeg || asyncSeg) {
+    // 시간 축: 더 긴 세그먼트 기준으로 정규화
+    const maxDur = Math.max(syncSeg?.duration_ms ?? 0, asyncSeg?.duration_ms ?? 0);
+    // 50개 포인트로 리샘플
+    const N = 60;
+    const labels = Array.from({length: N}, (_, i) => Math.round(i * maxDur / (N-1)));
+
+    function resample(seg, jointIdx) {
+      if (!seg || !seg.vel || seg.vel.length === 0) return new Array(N).fill(null);
+      return labels.map(t => {
+        const frac = t / seg.duration_ms;
+        const idx  = Math.min(Math.floor(frac * seg.vel.length), seg.vel.length - 1);
+        return Math.abs(seg.vel[idx]?.[jointIdx] ?? 0);
+      });
+    }
+
+    cmpVelChart.data.labels = labels;
+    for (let i = 0; i < 6; i++) {
+      cmpVelChart.data.datasets[i*2    ].data = resample(syncSeg,  i);
+      cmpVelChart.data.datasets[i*2 + 1].data = resample(asyncSeg, i);
+    }
+    cmpVelChart.update('none');
+  }
+
+  // ── 소요시간 바 ────────────────────────────────────────────────
+  const tSync  = syncSeg?.duration_ms  ?? 0;
+  const tAsync = asyncSeg?.duration_ms ?? 0;
+  cmpBarChart.data.datasets[0].data = [tSync, tAsync];
+  cmpBarChart.update('none');
+
+  // ── 최대 관절속도 바 ────────────────────────────────────────────
+  function vmaxPerJoint(seg) {
+    if (!seg || !seg.vel || seg.vel.length === 0) return [0,0,0,0,0,0];
+    return Array.from({length: 6}, (_, i) =>
+      Math.max(...seg.vel.map(frame => Math.abs(frame[i] ?? 0)))
+    );
+  }
+  cmpVmaxChart.data.datasets[0].data = vmaxPerJoint(syncSeg);
+  cmpVmaxChart.data.datasets[1].data = vmaxPerJoint(asyncSeg);
+  cmpVmaxChart.update('none');
+
+  // ── 요약 수치 ──────────────────────────────────────────────────
+  document.getElementById('cmp-t-sync').textContent  = tSync  ? `${tSync} ms`  : '—';
+  document.getElementById('cmp-t-async').textContent = tAsync ? `${tAsync} ms` : '—';
+
+  if (tSync > 0 && tAsync > 0) {
+    const delta = tSync - tAsync;
+    const pct   = (delta / tSync * 100).toFixed(1);
+    document.getElementById('cmp-delta').textContent = delta > 0 ? `▼ ${delta} ms 단축` : `▲ ${Math.abs(delta)} ms 증가`;
+    document.getElementById('cmp-pct').textContent   = delta > 0 ? `${pct}% 빠름` : '동기가 더 빠름';
+  } else {
+    document.getElementById('cmp-delta').textContent = '—';
+    document.getElementById('cmp-pct').textContent   = '—';
+  }
+
+  const vm = vmaxPerJoint(syncSeg);
+  const va = vmaxPerJoint(asyncSeg);
+  const vmS = vm.length ? Math.max(...vm).toFixed(1) : '—';
+  const vmA = va.length ? Math.max(...va).toFixed(1) : '—';
+  document.getElementById('cmp-vmax-sync').textContent  = vmS !== '—' ? `${vmS} deg/s` : '—';
+  document.getElementById('cmp-vmax-async').textContent = vmA !== '—' ? `${vmA} deg/s` : '—';
+}
+
+function openCompare() {
+  document.getElementById('compare-panel').classList.add('open');
+  if (!cmpVelChart) initCmpCharts();
+  refreshSegList();
+}
+
+function closeCompare() {
+  document.getElementById('compare-panel').classList.remove('open');
+}
+
+// ══════════════════════════════════════════════════════════════════
+// URDF Viewer (Three.js + URDFLoader)
+// ══════════════════════════════════════════════════════════════════
+let urdfScene = null, urdfRenderer = null, urdfCamera = null;
+let urdfControls = null, urdfRobot = null, urdfAnimId = null;
+let urdfReady = false;
+let pendingJoints = null;   // joints received before robot loaded
+
+function initUrdfViewer() {
+  if (urdfScene) return;  // already initialised
+
+  const wrap   = document.getElementById('urdf-canvas-wrap');
+  const canvas = document.getElementById('urdf-canvas');
+  const W = wrap.clientWidth  || 800;
+  const H = wrap.clientHeight || 600;
+
+  // Three.js scene
+  urdfScene = new THREE.Scene();
+  urdfScene.background = new THREE.Color(0x0d1117);
+
+  // Grid floor
+  const grid = new THREE.GridHelper(2, 20, 0x30363d, 0x21262d);
+  urdfScene.add(grid);
+
+  // Lights
+  const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+  urdfScene.add(ambient);
+  const dir = new THREE.DirectionalLight(0xffffff, 1.2);
+  dir.position.set(1, 2, 1.5);
+  urdfScene.add(dir);
+
+  // Camera
+  urdfCamera = new THREE.PerspectiveCamera(45, W / H, 0.001, 100);
+  urdfCamera.position.set(1.5, 1.2, 1.5);
+  urdfCamera.lookAt(0, 0.4, 0);
+
+  // Renderer
+  urdfRenderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  urdfRenderer.setPixelRatio(window.devicePixelRatio);
+  urdfRenderer.setSize(W, H);
+  urdfRenderer.outputEncoding = THREE.sRGBEncoding;
+  urdfRenderer.shadowMap.enabled = false;
+
+  // OrbitControls
+  urdfControls = new THREE.OrbitControls(urdfCamera, canvas);
+  urdfControls.target.set(0, 0.4, 0);
+  urdfControls.enableDamping = true;
+  urdfControls.dampingFactor = 0.08;
+  urdfControls.update();
+
+  // Resize observer
+  const ro = new ResizeObserver(() => {
+    const w = wrap.clientWidth, h = wrap.clientHeight;
+    urdfCamera.aspect = w / h;
+    urdfCamera.updateProjectionMatrix();
+    urdfRenderer.setSize(w, h);
+  });
+  ro.observe(wrap);
+
+  // Render loop
+  function animate() {
+    urdfAnimId = requestAnimationFrame(animate);
+    urdfControls.update();
+    urdfRenderer.render(urdfScene, urdfCamera);
+  }
+  animate();
+}
+
+function loadUrdf(url) {
+  document.getElementById('urdf-status').textContent = 'URDF 로딩 중...';
+  initUrdfViewer();
+
+  const loader = new URDFLoader();
+  // workingPath: mesh href 기준 경로 (HTTP 서버 루트 기준)
+  loader.workingPath = url.replace(/\/[^/]+$/, '') + '/';
+
+  loader.load(url, robot => {
+    if (urdfRobot) urdfScene.remove(urdfRobot);
+    urdfRobot = robot;
+    // M0609 URDF는 Z-up 좌표계 → Three.js Y-up으로 변환
+    urdfRobot.rotation.x = -Math.PI / 2;
+    urdfScene.add(urdfRobot);
+    urdfReady = true;
+    document.getElementById('urdf-status').textContent = 'URDF 로드 완료 ✓';
+    if (pendingJoints) {
+      applyUrdfJoints(pendingJoints);
+      pendingJoints = null;
+    }
+  }, undefined, err => {
+    console.error('URDF load error', err);
+    document.getElementById('urdf-status').textContent = '⚠ URDF 로드 실패 (콘솔 확인)';
+  });
+}
+
+function applyUrdfJoints(joints) {
+  if (!urdfReady || !urdfRobot) {
+    pendingJoints = joints;
+    return;
+  }
+  // setJointValues accepts { jointName: radians }
+  urdfRobot.setJointValues(joints);
+  // Update overlay
+  ['joint_1','joint_2','joint_3','joint_4','joint_5','joint_6'].forEach((name, i) => {
+    const id = `ov-j${i+1}`;
+    const el = document.getElementById(id);
+    if (el && joints[name] !== undefined)
+      el.textContent = (joints[name] * 180 / Math.PI).toFixed(1) + '°';
+  });
+}
+
+function openUrdf() {
+  document.getElementById('urdf-panel').classList.add('open');
+  // Trigger a resize so canvas fills the panel
+  setTimeout(() => {
+    if (urdfRenderer) {
+      const wrap = document.getElementById('urdf-canvas-wrap');
+      urdfCamera.aspect = wrap.clientWidth / wrap.clientHeight;
+      urdfCamera.updateProjectionMatrix();
+      urdfRenderer.setSize(wrap.clientWidth, wrap.clientHeight);
+    }
+  }, 50);
+}
+
+function closeUrdf() {
+  document.getElementById('urdf-panel').classList.remove('open');
+}
+
+
+// ══════════════════════════════════════════════════════════════════
+// Boot
+// ══════════════════════════════════════════════════════════════════
+connectWS();
+requestAnimationFrame(renderAll);
+</script>
+</body>
+</html>
