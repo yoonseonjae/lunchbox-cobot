@@ -52,17 +52,12 @@ class TraySetupStage(BaseStage):
 
             # 보관소 상단 → 하단 (순응+힘제어: 식판 접촉 시 -10N 아래방향 유지)
             if not self._movej(c1["tray_storage"]["upper"],           "🍱 [1/5] 보관소 상단"):        return StageResult.STOPPED
-            self._start_compliance()
-            self._start_force_ctrl(-10.0)
-            if not self._movej(c1["tray_storage"]["lower"],           "🍱 [1/5] 보관소 하단"):
-                self._stop_force_ctrl(); self._stop_compliance()
-                return StageResult.STOPPED
+            if not self._movej(c1["tray_storage"]["lower"],           "🍱 [1/5] 보관소 하단"):        return StageResult.STOPPED
 
+                
             # 식판 파지
             self._gripper(5)
             self.rc.wait(1.0)
-            self._stop_force_ctrl()
-            self._stop_compliance()
             self._tick("🍱 [1/5] 식판 파지", done=True)
 
             # 들어올림
@@ -241,12 +236,6 @@ class MainDishStage(BaseStage):
             torque_cls = self._sample_torque_class(n=3, interval=0.15)
             self._logger.info(f"반찬 파지 판별: {torque_cls}")
 
-            if torque_cls == "빈그리퍼":
-                # 집게 자체가 없음 → 비상정지
-                self.sm.add_step_log("🚨 [3/5] 집게 미감지 → 비상정지", completed=False)
-                self.sm.update_status(current_task="집게가 떨어진거같습니다. 확인해주세요.")
-                self.sm.trigger_emergency_stop()
-                return StageResult.ERROR
 
             if torque_cls == "집게":
                 # 반찬 미파지 → 다시 pick 위치로 돌아가 재시도
