@@ -1,21 +1,17 @@
 #!/usr/bin/env python3
 """
 ==============================================================================
-[Final] 나만의 도련님 도시락 - 로봇 하드웨어 추상 클라이언트 (Lock 동기화 버전)
+[Fix2] 나만의 도련님 도시락 - 로봇 클라이언트 (모션 중 read 차단판)
 ==============================================================================
-변경 요약:
-  - threading.RLock 추가: 모든 DSR API 호출(write + read)을 단일 락으로 직렬화
-  - write API (movej/movel/amovej/amovel/move_periodic/set_digital_output/move_stop)
-  - read API  (get_robot_state / get_tool_force / get_external_torque /
-              get_current_posx / get_current_posj / get_digital_input / check_motion)
-  → 모두 같은 락 안에서만 실행되므로 두 스레드가 동시에 service generator를
-    건드릴 일이 사라짐("generator already executing" 충돌 근본 해결).
+변경 요약 (Fix1 대비):
+  ★ _motion_active: threading.Event 추가
+  ★ 모든 write API (movej/movel/amovej/amovel/move_periodic) 가 진입 시 set,
+    완료 시 clear → 모니터 스레드들이 is_motion_active() 로 read 스킵 가능
+  → DSR_ROBOT2 service client 의 generator 가 모션 중에는 write 전용으로 점유되어
+    monitor read 와의 충돌이 원천 차단됨.
 
-  - wait_motion_done() 은 sleep 구간에서 락을 풀어, 모니터 스레드가
-    중간에 read 한 번씩 할 기회를 보장 (락 점유로 모니터 굶주리는 일 방지).
-
-  - get_current_posx / get_current_posj 신규 메서드 (status_upload 용도).
-  - 0.05초 cooldown 같은 의미 없는 magic sleep 제거.
+  ★ get_robot_state / get_tool_force / get_external_torque /
+    get_current_posx / get_current_posj 는 모션 중이면 즉시 None/기본값 반환.
 ==============================================================================
 """
 
@@ -27,7 +23,7 @@ from rclpy.logging import get_logger
 
 GRIPPER_SETTLE_SEC:        float = 2.0
 MOTION_START_DELAY_SEC:    float = 0.2
-MOTION_CHECK_INTERVAL_SEC: float = 0.1
+MOTION_CHECK_INTERVAL_SEC: float = 0.15  # 0.1 → 0.15 살짝 완화
 
 ON, OFF = 1, 0
 _logger = get_logger('robot_client')
@@ -46,9 +42,12 @@ class RobotClient:
         self.vel = vel
         self.acc = acc
 
-        # ★★★ 핵심: 모든 DSR API 호출을 직렬화하는 단일 락
-        # RLock 을 쓰는 이유: 향후 같은 스레드가 중첩 호출해도 안전.
+        # ★ 모든 DSR API 호출 직렬화 락
         self._lock = threading.RLock()
+
+        # ★★★ 신규: 모션 진행 중 플래그
+        # set 상태이면 monitor read 는 skip 해야 함
+        self._motion_active = threading.Event()
 
         # write API
         self._drs_movej = self._drs_movel = self._drs_amovej = self._drs_amovel = None
@@ -59,7 +58,7 @@ class RobotClient:
         self._drs_posj = self._drs_posx = self._drs_DR_BASE = self._drs_DR_TOOL = None
         self._drs_move_periodic = None
 
-        # read API (status_upload 용도, lunchbox_robot_node 에서 inject)
+        # read API
         self._drs_get_current_posx = None
         self._drs_get_current_posj = None
 
@@ -93,57 +92,83 @@ class RobotClient:
         self._drs_get_current_posj = get_current_posj
 
     # ──────────────────────────────────────────────────────────────
-    # 유틸 (락 불필요)
+    # 모션 활성 플래그 (모니터 스레드용)
+    # ──────────────────────────────────────────────────────────────
+    def is_motion_active(self) -> bool:
+        return self._motion_active.is_set()
+
+    # ──────────────────────────────────────────────────────────────
+    # 유틸
     # ──────────────────────────────────────────────────────────────
     def wait(self, sec: float) -> None:
         time.sleep(sec)
 
     def do_mwait(self, sec: float = 0) -> None:
-        # mwait 는 단순 동기 대기로 service generator 와 무관하지만
-        # 같은 락 안에서 일관성 있게 처리.
         with self._lock:
             if self._drs_mwait:
                 self._drs_mwait()
 
     # ──────────────────────────────────────────────────────────────
-    # 모션 명령 (write) — 모두 락 안에서
+    # 모션 명령 (write) — 진입 시 motion_active set, 완료 시 clear
     # ──────────────────────────────────────────────────────────────
     def do_movej(self, coords: List[float], radius: Optional[float] = None) -> None:
-        with self._lock:
-            self._drs_movej(self._drs_posj(coords),
-                            vel=self.vel, acc=self.acc, radius=radius)
-            if self._drs_mwait:
-                self._drs_mwait()
+        self._motion_active.set()
+        try:
+            with self._lock:
+                self._drs_movej(self._drs_posj(coords),
+                                vel=self.vel, acc=self.acc, radius=radius)
+                if self._drs_mwait:
+                    self._drs_mwait()
+        finally:
+            self._motion_active.clear()
 
     def do_movel(self, coords: List[float], radius: Optional[float] = None) -> None:
-        with self._lock:
-            self._drs_movel(self._drs_posx(coords),
-                            vel=self.vel, acc=self.acc,
-                            ref=self._drs_DR_BASE, radius=radius)
-            if self._drs_mwait:
-                self._drs_mwait()
+        self._motion_active.set()
+        try:
+            with self._lock:
+                self._drs_movel(self._drs_posx(coords),
+                                vel=self.vel, acc=self.acc,
+                                ref=self._drs_DR_BASE, radius=radius)
+                if self._drs_mwait:
+                    self._drs_mwait()
+        finally:
+            self._motion_active.clear()
 
     def do_amovej(self, coords: List[float], radius: Optional[float] = None) -> None:
-        with self._lock:
-            self._drs_amovej(self._drs_posj(coords),
-                             vel=self.vel, acc=self.acc, radius=radius)
+        # 비동기: motion_active 는 wait_motion_done 완료 시 clear 되도록 set 만 함
+        self._motion_active.set()
+        try:
+            with self._lock:
+                self._drs_amovej(self._drs_posj(coords),
+                                 vel=self.vel, acc=self.acc, radius=radius)
+        except Exception:
+            self._motion_active.clear()
+            raise
 
     def do_amovel(self, coords: List[float], radius: Optional[float] = None) -> None:
-        with self._lock:
-            self._drs_amovel(self._drs_posx(coords),
-                             vel=self.vel, acc=self.acc,
-                             ref=self._drs_DR_BASE, radius=radius)
+        self._motion_active.set()
+        try:
+            with self._lock:
+                self._drs_amovel(self._drs_posx(coords),
+                                 vel=self.vel, acc=self.acc,
+                                 ref=self._drs_DR_BASE, radius=radius)
+        except Exception:
+            self._motion_active.clear()
+            raise
 
     def do_move_periodic(self, amp: List[float], period: List[float],
                          atime: float, repeat: int) -> None:
-        with self._lock:
-            self._drs_move_periodic(amp=amp, period=period, atime=atime,
-                                    repeat=repeat, ref=self._drs_DR_TOOL)
-        # 완료 대기는 락을 풀고 폴링 (긴 시간 락 점유 방지)
-        self.wait_motion_done()
+        self._motion_active.set()
+        try:
+            with self._lock:
+                self._drs_move_periodic(amp=amp, period=period, atime=atime,
+                                        repeat=repeat, ref=self._drs_DR_TOOL)
+            self.wait_motion_done()
+        finally:
+            self._motion_active.clear()
 
     # ──────────────────────────────────────────────────────────────
-    # 그리퍼 (DO 핀 제어)
+    # 그리퍼
     # ──────────────────────────────────────────────────────────────
     def set_gripper(self, width_mm: int) -> None:
         if width_mm not in _GRIPPER_MAP:
@@ -153,12 +178,10 @@ class RobotClient:
             self._drs_set_digital_output(1, d1)
             self._drs_set_digital_output(2, d2)
             self._drs_set_digital_output(3, d3)
-        # settle 은 락 밖에서 sleep (모니터가 read 할 기회 제공)
         time.sleep(GRIPPER_SETTLE_SEC)
         _logger.info(f"그리퍼 {width_mm}mm 설정")
 
     def check_grip(self) -> bool:
-        """OnRobot RG2 파지 확인"""
         try:
             with self._lock:
                 di_1 = self._drs_get_digital_input(1)
@@ -167,21 +190,20 @@ class RobotClient:
             return True
 
     # ──────────────────────────────────────────────────────────────
-    # 모션 완료 대기 — 핵심: sleep 구간은 락 밖에서!
+    # 모션 완료 대기 — 비동기 모션 완료 시 motion_active clear
     # ──────────────────────────────────────────────────────────────
     def wait_motion_done(self) -> bool:
-        """
-        check_motion() 폴링 루프.
-        락 점유 시간을 최소화하기 위해 check_motion 호출 순간만 락을 잡고,
-        sleep 은 락 밖에서 수행 → 모니터/상태 스레드가 굶지 않음.
-        """
         time.sleep(MOTION_START_DELAY_SEC)
-        while True:
-            with self._lock:
-                state = self._drs_check_motion()
-            if state == 0:
-                return True
-            time.sleep(MOTION_CHECK_INTERVAL_SEC)
+        try:
+            while True:
+                with self._lock:
+                    state = self._drs_check_motion()
+                if state == 0:
+                    return True
+                time.sleep(MOTION_CHECK_INTERVAL_SEC)
+        finally:
+            # 비동기 모션도 여기서 완료되므로 clear
+            self._motion_active.clear()
 
     # ──────────────────────────────────────────────────────────────
     # 정지
@@ -190,11 +212,14 @@ class RobotClient:
         if self._drs_move_stop:
             with self._lock:
                 self._drs_move_stop(3)
+        self._motion_active.clear()
 
     # ──────────────────────────────────────────────────────────────
-    # Read API — 모두 락 안에서 (모니터 스레드용)
+    # Read API — 모션 중이면 read 자체를 스킵
     # ──────────────────────────────────────────────────────────────
     def get_robot_state(self) -> int:
+        if self._motion_active.is_set():
+            return 1  # STANDBY 로 간주 (충돌 감지 트리거 X)
         if not self._drs_get_robot_state:
             return 1
         try:
@@ -204,6 +229,8 @@ class RobotClient:
             return 1
 
     def get_tool_force(self) -> List[float]:
+        if self._motion_active.is_set():
+            return [0.0] * 6  # 모션 중에는 무력 (충돌 감지 보조 비활성)
         if not self._drs_get_tool_force:
             return [0.0] * 6
         try:
@@ -213,6 +240,8 @@ class RobotClient:
             return [0.0] * 6
 
     def get_external_torque(self) -> List[float]:
+        if self._motion_active.is_set():
+            return [0.0] * 6
         if not self._drs_get_external_torque:
             return [0.0] * 6
         try:
@@ -222,13 +251,13 @@ class RobotClient:
             return [0.0] * 6
 
     def get_current_posx(self) -> Optional[List[float]]:
-        """현재 TCP 위치 (status_upload 용)."""
+        if self._motion_active.is_set():
+            return None  # 모션 중 status 업로드는 좌표 생략
         if not self._drs_get_current_posx:
             return None
         try:
             with self._lock:
                 result = self._drs_get_current_posx(self._drs_DR_BASE)
-            # DSR 의 get_current_posx 는 (posx, sol_space) 튜플 반환
             if isinstance(result, (tuple, list)) and len(result) >= 1:
                 return list(result[0])
             return list(result) if result else None
@@ -236,7 +265,8 @@ class RobotClient:
             return None
 
     def get_current_posj(self) -> Optional[List[float]]:
-        """현재 관절 각도 (status_upload 용, 라디안)."""
+        if self._motion_active.is_set():
+            return None
         if not self._drs_get_current_posj:
             return None
         try:

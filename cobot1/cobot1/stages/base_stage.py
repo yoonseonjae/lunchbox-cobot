@@ -16,6 +16,7 @@
 """
 
 import time
+import numpy as np
 from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Callable, List, Optional
@@ -192,3 +193,62 @@ class BaseStage(ABC):
         result = get_classifier().predict_class_from_mean(samples)
         self._logger.info(f"토크 분류 결과: {result} (샘플 {len(samples)}개)")
         return result
+    
+    def _measure_j2_baseline(self, n: int = 5, interval: float = 0.1) -> float:
+        """
+        현재 자세에서 J2 토크 평균을 측정해 동적 baseline 반환.
+        로봇이 정지 상태일 때 호출할 것.
+        """
+        samples = []
+        for _ in range(n):
+            try:
+                t = self.rc.get_external_torque()
+                if t and len(t) == 6:
+                    samples.append(t[1])  # J2만
+            except Exception:
+                pass
+            time.sleep(interval)
+
+        if not samples:
+            self._logger.warn("baseline 측정 실패 → 기본값 -3.4 사용")
+            return -3.4  # 폴백
+
+        baseline = float(np.mean(samples))
+        self._logger.info(f"J2 baseline 측정: {baseline:.4f} (샘플 {len(samples)}개)")
+        return baseline
+
+
+    def _sample_torque_class_dynamic(
+        self, n: int, interval: float, baseline_j2: float
+    ) -> str:
+        """
+        동적 baseline 기반 판별.
+        DELTA ≈ 0.325 (집게 → 집게+돈까스 J2 변화량 실측 평균)
+        """
+        DELTA = 0.25
+        boundary = baseline_j2 + DELTA / 2  # baseline보다 DELTA/2 위
+
+        samples = []
+        for _ in range(n):
+            try:
+                t = self.rc.get_external_torque()
+                if t and len(t) == 6:
+                    samples.append(t[1])
+            except Exception:
+                pass
+            time.sleep(interval)
+
+        if not samples:
+            self._logger.warn("토크 샘플 없음 → 빈그리퍼 처리")
+            return "빈그리퍼"
+
+        mean_j2 = float(np.mean(samples))
+        self._logger.info(
+            f"[동적 판별] J2 측정={mean_j2:.4f} | baseline={baseline_j2:.4f} "
+            f"| boundary={boundary:.4f}"
+        )
+
+        # baseline과 측정값 차이가 너무 작으면 미파지
+        if mean_j2 < boundary:
+            return "집게"
+        return "집게+돈까스"

@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
 """
 ==============================================================================
-[Phase 5] 나만의 도련님 도시락 - 로봇 컨트롤러 (Lock 동기화 버전)
+[Fix] 나만의 도련님 도시락 - 로봇 컨트롤러 (generator 충돌 해결판)
 ==============================================================================
-변경 요약:
-  - _status_upload_loop : `from DSR_ROBOT2 import get_current_posx` 같은
-    스레드 내부 직접 import 제거. RobotClient.get_current_posx/posj() 만 사용.
-  - _torque_publish_loop : 별도 0.1초 주기 → 0.5초로 완화 (모니터와 통합 효과).
-  - _collision_monitor_loop : 0.3초 → 0.5초로 완화.
-  → 모든 read 호출이 RobotClient 의 단일 락 안에서 직렬화되므로
-    task 스레드의 movej/movel 과 충돌하지 않음.
+변경 요약 (이전 버전 대비):
+  ★ start() 순서 재정렬:
+      ① spin 스레드 시작 → 0.5초 대기 (executor 안정화)
+      ② subscription / Firebase listener 등록
+      ③ task 스레드만 먼저 시작 → 홈 이동 완료까지 대기 (_init_event)
+      ④ 홈 이동 성공이 확인된 후에야 monitor/status/torque 스레드 시작
+  → 홈 이동(첫 movej) 시점에는 RobotClient 락에 경쟁자가 없으므로 충돌 차단.
+
+  ★ _task_loop 안에서 set_robot_mode(ROBOT_MODE_AUTONOMOUS) 호출
+  → 작업 스레드에서만 DSR API 호출하는 규칙 준수.
+
+  ★ _status_upload_loop: shutdown 직후 publish 시도 방지 가드 추가.
+  ★ listen_orders 등록도 start()에 추가 (기존에 누락되어 있었음).
 ==============================================================================
 """
 
@@ -42,10 +48,11 @@ from .stages import (
 # ── 상수 ──────────────────────────────────────────────────────────────────
 STATUS_UPLOAD_INTERVAL_SEC:     float = 1.0
 STATUS_ERROR_RETRY_SEC:         float = 5.0
-COLLISION_MONITOR_INTERVAL_SEC: float = 0.5   # 0.3 → 0.5 완화
-TORQUE_PUBLISH_INTERVAL_SEC:    float = 0.5   # 0.1 → 0.5 완화
+COLLISION_MONITOR_INTERVAL_SEC: float = 1.0   # 0.5 → 1.0 추가 완화
+TORQUE_PUBLISH_INTERVAL_SEC:    float = 1.0   # 0.5 → 1.0 추가 완화
 TASK_ERROR_RETRY_SEC:           float = 1.0
 ROS_EXECUTOR_THREADS:           int   = 4
+SPIN_STABILIZE_SEC:             float = 0.5
 COLLISION_STATES                      = {3, 5, 6, 7}
 ROBOT_STATE_STANDBY:            int   = 1
 
@@ -90,38 +97,62 @@ class RobotController:
         self._t_torque:  Optional[threading.Thread] = None
 
     # ──────────────────────────────────────────────────────────────
-    # 생명주기
+    # 생명주기 (★★★ 핵심 수정 부분 ★★★)
     # ──────────────────────────────────────────────────────────────
     def start(self) -> bool:
         self._running.set()
-        self._t_spin = threading.Thread(target=self._ros_spin_loop, name="ros_spin", daemon=False)
-        self._t_spin.start()
 
-        self.node.create_subscription(String, '/robot_order', self._on_ros_order_msg, 10)
+        # ── ① spin 스레드 먼저 시작 + 안정화 대기 ─────────────────
+        self._t_spin = threading.Thread(target=self._ros_spin_loop,
+                                        name="ros_spin", daemon=False)
+        self._t_spin.start()
+        self.node.get_logger().info(
+            f"spin 스레드 시작, {SPIN_STABILIZE_SEC}s 안정화 대기"
+        )
+        time.sleep(SPIN_STABILIZE_SEC)
+
+        # ── ② subscription / listener 등록 (spin 가동 후) ─────────
+        self.node.create_subscription(String, '/robot_order',
+                                      self._on_ros_order_msg, 10)
         self.node.get_logger().info("/robot_order 토픽 구독 등록")
+
+        # Firebase listener (있다면)
+        try:
+            self.repo.listen_orders(self._on_order_received)
+        except Exception as e:
+            self.node.get_logger().warn(f"listen_orders 등록 실패: {e}")
 
         self.repo.listen_commands(self._on_command_received)
 
         if hasattr(self.repo, 'listen_test_command'):
             self.repo.listen_test_command(self._on_test_command_received)
 
-        self._t_task    = threading.Thread(target=self._task_loop,            name="task",              daemon=False)
-        self._t_status  = threading.Thread(target=self._status_upload_loop,   name="status_upload",     daemon=True)
-        self._t_monitor = threading.Thread(target=self._collision_monitor_loop, name="collision_monitor", daemon=True)
-        self._t_torque  = threading.Thread(target=self._torque_publish_loop,  name="torque_pub",        daemon=True)
-
+        # ── ③ task 스레드만 먼저 시작 → 홈 이동 완료까지 대기 ────
+        self._t_task = threading.Thread(target=self._task_loop,
+                                        name="task", daemon=False)
         self._t_task.start()
-        self._t_status.start()
-        self._t_monitor.start()
-        self._t_torque.start()
 
         if not self._init_event.wait(timeout=30.0):
             self.node.get_logger().error("초기화 타임아웃 (30초) → 종료")
             self.stop()
             return False
         if not self._init_ok:
+            self.node.get_logger().error("홈 이동 실패 → 종료")
             self.stop()
             return False
+
+        # ── ④ 홈 이동 완료 후에야 monitor/status/torque 스레드 시작 ─
+        self.node.get_logger().info("홈 이동 완료 — 모니터 스레드 시작")
+        self._t_status  = threading.Thread(target=self._status_upload_loop,
+                                           name="status_upload", daemon=True)
+        self._t_monitor = threading.Thread(target=self._collision_monitor_loop,
+                                           name="collision_monitor", daemon=True)
+        self._t_torque  = threading.Thread(target=self._torque_publish_loop,
+                                           name="torque_pub", daemon=True)
+
+        self._t_status.start()
+        self._t_monitor.start()
+        self._t_torque.start()
 
         self.node.get_logger().info("✅ 모든 스레드 시작 완료")
         return True
@@ -176,7 +207,7 @@ class RobotController:
             self._cmd_queue.put(cmd_type)
 
     # ──────────────────────────────────────────────────────────────
-    # 테스트 모드
+    # 테스트 모드 (기존 그대로)
     # ──────────────────────────────────────────────────────────────
     def _on_test_command_received(self, payload: dict) -> None:
         self._init_event.wait()
@@ -322,7 +353,7 @@ class RobotController:
             raise RuntimeError("Main dish 테스트 실패")
 
     # ──────────────────────────────────────────────────────────────
-    # 주문 처리
+    # 주문 처리 (기존 그대로)
     # ──────────────────────────────────────────────────────────────
     def _process_order(self, order: Order) -> None:
         key = order.key
@@ -408,6 +439,8 @@ class RobotController:
             self.sm.update_status(state=RobotState.ERROR, current_task=f"오류: {e}")
 
     def _seg_publish(self, payload: dict) -> None:
+        if not rclpy.ok():
+            return
         msg = String()
         msg.data = json.dumps(payload, ensure_ascii=False)
         self._seg_pub.publish(msg)
@@ -483,12 +516,21 @@ class RobotController:
             self.rc.set_gripper(100)
 
     # ──────────────────────────────────────────────────────────────
-    # 메인 루프
+    # 메인 작업 루프 (★ set_robot_mode 호출 위치 변경)
     # ──────────────────────────────────────────────────────────────
     def _task_loop(self) -> None:
         self.node.get_logger().info("홈 위치 초기화 중...")
         try:
-            from DSR_ROBOT2 import set_tool, set_tcp
+            # ★ set_robot_mode 를 작업 스레드에서 호출 (메인 스레드 X)
+            from DSR_ROBOT2 import (
+                set_tool, set_tcp, set_robot_mode, ROBOT_MODE_AUTONOMOUS,
+            )
+            try:
+                set_robot_mode(ROBOT_MODE_AUTONOMOUS)
+                self.node.get_logger().info("set_robot_mode(AUTONOMOUS) 완료")
+            except Exception as e:
+                self.node.get_logger().warn(f"set_robot_mode 실패 (계속 진행): {e}")
+
             set_tool(self.cm.tool)
             set_tcp(self.cm.tcp)
             self.rc.do_movej(self.cm.home_joint())
@@ -524,7 +566,6 @@ class RobotController:
                 time.sleep(TASK_ERROR_RETRY_SEC)
 
     def _ros_spin_loop(self) -> None:
-        self.node.get_logger().info("spin 스레드 시작")
         try:
             executor = MultiThreadedExecutor(num_threads=ROS_EXECUTOR_THREADS)
             executor.add_node(self.node)
@@ -533,11 +574,14 @@ class RobotController:
             if rclpy.ok(): self.node.get_logger().error(f"spin 오류: {e}")
 
     # ──────────────────────────────────────────────────────────────
-    # 상태 업로드 (★ DSR API 호출은 모두 RobotClient 경유)
+    # 상태 업로드 (★ motion_active 체크 + shutdown 가드)
     # ──────────────────────────────────────────────────────────────
     def _status_upload_loop(self) -> None:
         while rclpy.ok() and self._running.is_set():
             try:
+                if not rclpy.ok():
+                    break
+
                 payload = self.sm.get_status_dict()
 
                 if self.sm.is_paused():
@@ -545,40 +589,50 @@ class RobotController:
                 elif self.sm.is_stopped():
                     payload['state'] = 'collision'
 
+                # Firebase 업로드와 /robot_status publish 는 모션과 무관 → 항상 진행
                 self.repo.upload_robot_status(payload)
+
+                if not rclpy.ok():
+                    break
 
                 msg = String()
                 msg.data = json.dumps(payload, ensure_ascii=False)
                 self._status_pub.publish(msg)
 
-                # ★ TCP 위치: RobotClient 락 안에서 호출됨
+                # ★ posx / posj 는 모션 중에는 None 반환 (robot_client 에서 skip)
+                #   → 모션 중 publish 가 자연스럽게 생략됨
                 posx = self.rc.get_current_posx()
-                if posx:
+                if posx and rclpy.ok():
                     tcp_msg = String()
                     tcp_msg.data = json.dumps(list(posx))
                     self._tcp_pub.publish(tcp_msg)
 
-                # ★ 관절 각도: RobotClient 락 안에서 호출됨
                 posj = self.rc.get_current_posj()
-                if posj:
+                if posj and rclpy.ok():
                     tj_msg = String()
                     tj_msg.data = json.dumps([math.degrees(v) for v in posj])
                     self._target_posj_pub.publish(tj_msg)
 
             except Exception as e:
-                self.node.get_logger().error(f"상태 업로드 오류: {e}")
+                if rclpy.ok():
+                    self.node.get_logger().error(f"상태 업로드 오류: {e}")
                 time.sleep(STATUS_ERROR_RETRY_SEC)
                 continue
             time.sleep(STATUS_UPLOAD_INTERVAL_SEC)
 
     # ──────────────────────────────────────────────────────────────
-    # 토크 publish (★ 주기 0.1 → 0.5 완화, 락 안에서 read)
+    # 토크 publish (★ motion_active 체크)
     # ──────────────────────────────────────────────────────────────
     def _torque_publish_loop(self) -> None:
         while rclpy.ok() and self._running.is_set():
             try:
+                # 모션 중에는 publish 스킵 (robot_client 에서 어차피 [0]*6 반환)
+                if self.rc.is_motion_active():
+                    time.sleep(TORQUE_PUBLISH_INTERVAL_SEC)
+                    continue
+
                 torque = self.rc.get_external_torque()
-                if torque:
+                if torque and rclpy.ok():
                     safe = [0.0 if (v != v) else v for v in torque]
                     t_msg = String()
                     t_msg.data = json.dumps(safe)
@@ -588,7 +642,7 @@ class RobotController:
             time.sleep(TORQUE_PUBLISH_INTERVAL_SEC)
 
     # ──────────────────────────────────────────────────────────────
-    # 충돌 감지 (★ 주기 0.3 → 0.5 완화, 모든 read 는 RobotClient 락 안에서)
+    # 충돌 감지 (★ 모션 중에는 read 자체를 스킵)
     # ──────────────────────────────────────────────────────────────
     def _collision_monitor_loop(self) -> None:
         _in_collision = False
@@ -598,6 +652,14 @@ class RobotController:
 
         while rclpy.ok() and self._running.is_set():
             try:
+                # ★★★ 핵심: 모션 중에는 모든 read 를 건너뛴다
+                # robot_client.get_robot_state/force/torque 가 내부적으로
+                # is_motion_active() 체크하지만, 여기서도 명시적으로 스킵하여
+                # 불필요한 메서드 호출 오버헤드 자체를 제거.
+                if self.rc.is_motion_active():
+                    time.sleep(COLLISION_MONITOR_INTERVAL_SEC)
+                    continue
+
                 state = self.rc.get_robot_state()
                 hard_collision = state in COLLISION_STATES
                 soft_collision = False

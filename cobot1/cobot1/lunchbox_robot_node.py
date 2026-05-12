@@ -1,17 +1,13 @@
 #!/usr/bin/env python3
 """
 ==============================================================================
-나만의 도련님 도시락 - 메인 노드 (리팩토링 완성본)
+나만의 도련님 도시락 - 메인 노드 (generator 충돌 해결판)
 ==============================================================================
-아키텍처:
-  main()
-   ├─ CoordinateManager   (Phase 2) : YAML에서 좌표 로드
-   ├─ RobotStateManager   (Phase 1) : 중앙 상태 관리
-   ├─ RobotClient         (Phase 4.5): DSR API 래퍼
-   ├─ FirebaseOrderRepository (Phase 4): 주문/명령 리스닝 + 상태 업로드
-   └─ RobotController     (Phase 5) : 스레드 통합 + Stage 실행
-
-Firebase 없는 환경에서는 use_firebase=False 로 MockOrderRepository 를 사용.
+변경 요약:
+  1) set_robot_mode 를 main()에서 호출하지 않음 → _task_loop 안에서 작업 스레드가 호출
+     (이유: spin 시작 전이라도 같은 노드의 service client 가 generator 를 열어두면
+      이후 spin 이 시작될 때 충돌 가능성이 있음)
+  2) robot_client.inject()의 read API 인자 순서/이름 명시 호출로 변경 (가독성)
 ==============================================================================
 """
 
@@ -32,6 +28,7 @@ DR_init.__dsr__model = ROBOT_MODEL
 SERVICE_ACCOUNT_KEY = os.path.expanduser("~/cobot_ws/cobot1/config/serviceAccountKey.json")
 DATABASE_URL = "https://rokey-d3991-default-rtdb.asia-southeast1.firebasedatabase.app"
 
+
 def main(args=None) -> None:
     rclpy.init(args=args)
     node = rclpy.create_node("lunchbox_robot_node", namespace=ROBOT_ID)
@@ -48,8 +45,8 @@ def main(args=None) -> None:
             check_motion,
             get_robot_state,
             set_robot_mode,
-            # 🚨 [복구됨] 외력 감지 센서 API
             get_tool_force, get_external_torque,
+            get_current_posx, get_current_posj,
             DR_BASE, DR_TOOL,
             move_periodic,
         )
@@ -60,18 +57,17 @@ def main(args=None) -> None:
         rclpy.shutdown()
         return
 
-    try:
-        set_robot_mode(ROBOT_MODE_AUTONOMOUS)
-    except Exception as e:
-        node.get_logger().error(f"set_robot_mode 실패: {e}")
+    # ⛔ [제거됨] 여기서 set_robot_mode 호출하지 않음
+    # → _task_loop 가 시작될 때 작업 스레드에서 호출하도록 변경
+    #   (spin 시작 전 service generator 가 미완료 상태로 남아 충돌의 씨앗이 됨)
 
     from .coordinate_manager import CoordinateManager
     from .state_manager      import RobotStateManager
     from .robot_client       import RobotClient
     from .robot_controller   import RobotController
 
-    coord_mgr    = CoordinateManager()         
-    state_mgr    = RobotStateManager()          
+    coord_mgr    = CoordinateManager()
+    state_mgr    = RobotStateManager()
     robot_client = RobotClient(
         vel = coord_mgr.velocity,
         acc = coord_mgr.acceleration,
@@ -80,12 +76,12 @@ def main(args=None) -> None:
         movej, movel, mwait, amovej, amovel,
         set_digital_output, get_digital_input,
         wait, drl_script_stop,
-        check_motion, drl_script_stop,
+        check_motion, drl_script_stop,   # move_stop 자리에 drl_script_stop 유지
         get_robot_state,
-        # 🚨 [복구됨] 클라이언트에 센서 주입
         get_tool_force, get_external_torque,
         posj, posx, DR_BASE,
         move_periodic, DR_TOOL,
+        get_current_posx, get_current_posj,
     )
 
     use_firebase = os.path.exists(SERVICE_ACCOUNT_KEY)
@@ -124,6 +120,7 @@ def main(args=None) -> None:
         if rclpy.ok():
             rclpy.shutdown()
         _logger.info("종료 완료")
+
 
 if __name__ == "__main__":
     main()
