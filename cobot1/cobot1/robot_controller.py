@@ -74,6 +74,7 @@ class RobotController:
         self._target_posj_pub = self.node.create_publisher(String, '/robot_target_posj', 10)
         self._torque_pub      = self.node.create_publisher(String, '/robot_torque', 10)
         self._seg_pub         = self.node.create_publisher(String, '/robot_motion_segment', 10)
+        self._order_status_pub = self.node.create_publisher(String, '/order_status', 10)
 
         self._t_spin:    Optional[threading.Thread] = None
         self._t_task:    Optional[threading.Thread] = None
@@ -463,18 +464,21 @@ class RobotController:
             self.sm.update_status(state=RobotState.IDLE, current_task="대기 중", progress=100, current_step="완료")
             self.sm.add_step_log("🎉 주문 완료!", completed=True)
             self.repo.mark_completed(key)
+            self._publish_order_status(key, 'completed')
             self.node.get_logger().info(f"✅ 주문 완료: {key}")
 
         except InterruptedError:
             self.node.get_logger().warn(f"🛑 충돌로 인해 주문 취소됨. 임시 저장합니다.")
             self.sm.add_step_log("🛑 외력 감지/일시정지로 주문이 중단되었습니다.")
             self.repo.mark_error(key)
+            self._publish_order_status(key, 'error')
             self.last_failed_order = order 
 
         except Exception as e:
             self.node.get_logger().error(f"❌ 주문 오류: {e}")
             self.sm.add_step_log(f"❌ 오류: {e}")
             self.repo.mark_error(key)
+            self._publish_order_status(key, 'error')
             self.sm.update_status(state=RobotState.ERROR, current_task=f"오류: {e}")
 
     def _seg_publish(self, payload: dict) -> None:
@@ -482,6 +486,12 @@ class RobotController:
         msg = String()
         msg.data = json.dumps(payload, ensure_ascii=False)
         self._seg_pub.publish(msg)
+
+    def _publish_order_status(self, key: str, status: str) -> None:
+        """주문 처리 결과를 /order_status 토픽으로 발행 (lunchbox_database_node.py 모드 B 연동)."""
+        msg = String()
+        msg.data = json.dumps({'_key': key, 'status': status}, ensure_ascii=False)
+        self._order_status_pub.publish(msg)
 
     def _handle_delivery_estop_resume(self) -> None:
         """

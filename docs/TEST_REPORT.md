@@ -1,6 +1,6 @@
 # cobot1 단위 테스트 보고서
 
-**작성일**: 2026년 5월 9일  
+**작성일**: 2026년 5월 12일  
 **패키지**: `src/cobot1/` — 나만의 도련님 도시락 로봇 제어 시스템  
 **로봇**: Doosan M0609 / ROS2 Humble  
 **브랜치**: `main`
@@ -70,7 +70,7 @@ mock_movej.assert_called_once_with(coords, vel=30, acc=30, radius=None)
 
 ## 3. 테스트 파일 구성
 
-### 3-1. `test_robot_client.py` — 31개 테스트
+### 3-1. `test_robot_client.py` — 46개 테스트
 
 **대상**: `cobot1/robot_client.py`  
 **역할**: DSR API를 직접 호출하는 유일한 계층
@@ -83,10 +83,11 @@ mock_movej.assert_called_once_with(coords, vel=30, acc=30, radius=None)
 | `TestGripper` | 5가지 폭의 DO핀 조합, 잘못된 폭 무시 |
 | `TestStopMethods` | do_stop → move_stop(3), inject 전 안전 호출 |
 | `TestConstants` | ON/OFF 값, 타이밍 상수 양수 여부 |
-| `TestCheckGrip` (신규) | DI1 핀 기반 파지 확인, 예외 시 True 반환 |
-| `TestGetRobotState` (신규) | DSR 위임, inject 전 기본값 1 |
-| `TestGetForce` (신규) | get_tool_force/get_external_torque 반환값 형식 |
-| `TestMotionWithRadius` (신규) | radius 파라미터 DSR 전달 확인 |
+| `TestCheckGrip` | DI1 핀 기반 파지 확인, 예외 시 True 반환 |
+| `TestGetRobotState` | DSR 위임, inject 전 기본값 1 |
+| `TestGetForce` | get_tool_force/get_external_torque 반환값 형식 |
+| `TestMotionWithRadius` | radius 파라미터 DSR 전달 확인 |
+| `TestDoMovePeriodic` (신규) | move_periodic DSR 전달, inject 전 안전 리턴, 인수별 전달 확인 |
 
 **핵심 검증 — 그리퍼 DO핀 테이블**
 
@@ -100,7 +101,7 @@ mock_movej.assert_called_once_with(coords, vel=30, acc=30, radius=None)
 
 ---
 
-### 3-2. `test_state_manager.py` — 57개 테스트
+### 3-2. `test_state_manager.py` — 63개 테스트
 
 **대상**: `cobot1/state_manager.py`  
 **역할**: 로봇 상태 관리, 비상정지·일시정지 이벤트, 진행률 추적
@@ -149,7 +150,7 @@ mock_movej.assert_called_once_with(coords, vel=30, acc=30, radius=None)
 
 ---
 
-### 3-5. `test_robot_controller.py` — 41개 테스트
+### 3-5. `test_robot_controller.py` — 26개 테스트
 
 **대상**: `cobot1/robot_controller.py`  
 **역할**: 명령 수신·주문 큐 관리·ROS 메시지 파싱
@@ -194,16 +195,16 @@ python3 -m pytest cobot1/test/ -v -x
 
 ## 5. 최종 테스트 결과
 
-**실행 일시**: 2026년 5월 9일  
+**실행 일시**: 2026년 5월 12일  
 **실행 명령**: `python3 -m pytest cobot1/test/ -v`  
 **환경**: Python 3.10.12 / pytest-9.0.3 / ROS2 Humble
 
 ```
 ============================= test session info ==============================
 platform linux -- Python 3.10.12, pytest-9.0.3
-collected 162 items
+collected 168 items
 
-162 passed in 11.62s
+168 passed in 11.70s
 ```
 
 ### 파일별 결과 요약
@@ -211,11 +212,11 @@ collected 162 items
 | 테스트 파일 | 테스트 수 | PASS | FAIL | 비고 |
 |------------|:---------:|:----:|:----:|------|
 | `test_mock_repository.py` | 12 | **12** | 0 | 기존 유지 |
-| `test_order_model.py` | 21 | **21** | 0 | 2026-05-09 신규 |
-| `test_robot_client.py` | 31 | **31** | 0 | +14 신규 추가 |
-| `test_robot_controller.py` | 41 | **41** | 0 | 전면 재작성 |
-| `test_state_manager.py` | 57 | **57** | 0 | +29 신규 추가 |
-| **합계** | **162** | **162** | **0** | |
+| `test_order_model.py` | 21 | **21** | 0 | 기존 유지 |
+| `test_robot_client.py` | 46 | **46** | 0 | +6 TestDoMovePeriodic 신규 추가 |
+| `test_robot_controller.py` | 26 | **26** | 0 | 기존 유지 |
+| `test_state_manager.py` | 63 | **63** | 0 | 기존 유지 |
+| **합계** | **168** | **168** | **0** | |
 
 ---
 
@@ -264,7 +265,7 @@ collected 162 items
 | 20 | `TestMockOrderRepositoryExtra::test_inject_command_various_types` | ✅ | 4가지 명령 타입 큐 적재 |
 | 21 | `TestMockOrderRepositoryExtra::test_concurrent_inject_order_is_thread_safe` | ✅ | 20개 스레드 동시 삽입 충돌 없음 |
 
-### test_robot_client.py (31/31 PASS)
+### test_robot_client.py (46/46 PASS)
 
 | # | 테스트명 | 결과 | 검증 내용 |
 |---|---------|:----:|-----------|
@@ -309,7 +310,14 @@ collected 162 items
 | 39 | `TestMotionWithRadius::test_do_movej_radius_none_by_default` | ✅ | 미지정 시 radius=None |
 | 40 | `TestMotionWithRadius::test_do_amovej_with_radius` | ✅ | 비동기 이동에도 radius 전달 |
 
-### test_robot_controller.py (41/41 PASS) — 전면 재작성
+| 41 | `TestDoMovePeriodic::test_calls_dsr_move_periodic_with_correct_args` | ✅ | move_periodic(amp, period_ms, atime, count) DSR 전달 |
+| 42 | `TestDoMovePeriodic::test_does_nothing_before_inject` | ✅ | inject 전 do_move_periodic() 예외 없이 리턴 |
+| 43 | `TestDoMovePeriodic::test_period_ms_forwarded_as_period_kwarg` | ✅ | period_ms가 DSR 두 번째 positional 인수로 전달 |
+| 44 | `TestDoMovePeriodic::test_count_forwarded_correctly` | ✅ | count가 DSR 네 번째 positional 인수로 전달 |
+| 45 | `TestDoMovePeriodic::test_amp_forwarded_correctly` | ✅ | amp 벡터가 DSR 첫 번째 positional 인수로 전달 |
+| 46 | `TestDoMovePeriodic::test_called_only_once_per_invocation` | ✅ | do_move_periodic 1회 호출 시 DSR 1회만 호출 |
+
+### test_robot_controller.py (26/26 PASS)
 
 | # | 테스트명 | 결과 | 검증 내용 |
 |---|---------|:----:|-----------|
@@ -340,7 +348,7 @@ collected 162 items
 | 25 | `TestRosOrderMsg::test_missing_key_field_not_enqueued` | ✅ | _key 필드 없음 → 큐 비적재 |
 | 26 | `TestRosOrderMsg::test_ros_order_sub_dishes_parsed_correctly` | ✅ | sub_dishes 목록 파싱 정확성 |
 
-### test_state_manager.py (57/57 PASS)
+### test_state_manager.py (63/63 PASS)
 
 | # | 테스트명 | 결과 | 검증 내용 |
 |---|---------|:----:|-----------|
@@ -410,7 +418,17 @@ collected 162 items
 
 ---
 
-## 7. 2026-05-09 변경 이력 (API 업데이트 반영)
+## 7. 변경 이력
+
+### 2026-05-12 변경 이력
+
+소스 코드 변경으로 인해 새 테스트를 추가했습니다.
+
+| 파일 | 변경 내용 |
+|------|----------|
+| `test_robot_client.py` | `TestDoMovePeriodic` 6개 테스트 추가 (`do_move_periodic` → DSR `move_periodic` 전달 검증) |
+
+### 2026-05-09 변경 이력 (API 업데이트 반영)
 
 소스 코드 변경으로 인해 기존 테스트 일부를 수정하고 새 테스트를 추가했습니다.
 
