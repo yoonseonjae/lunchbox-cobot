@@ -94,6 +94,7 @@ class RobotController:
         self.node.create_subscription(String, '/robot_order', self._on_ros_order_msg, 10)
         self.node.get_logger().info("/robot_order 토픽 구독 등록")
 
+        self.repo.listen_orders(self._on_order_received)
         self.repo.listen_commands(self._on_command_received)
 
         if hasattr(self.repo, 'listen_test_command'):

@@ -31,11 +31,6 @@ setup(
     entry_points={
         'console_scripts': [
             'lunchbox_robot_node = cobot1.lunchbox_robot_node:main',
-            'lunchbox_database_node = cobot1.lunchbox_database_node:main',
-            'robot_dashboard     = cobot1.robot_dashboard:main',
-            'camera_stream_server     = cobot1.camera_stream_server:main',
-            'mini_jog                 = cobot1.mini_jog:main',
-            'move_basic               = cobot1.move_basic:main',
         ],
     },
 )
