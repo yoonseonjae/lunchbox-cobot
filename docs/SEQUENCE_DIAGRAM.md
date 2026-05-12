@@ -5,32 +5,32 @@
 ```mermaid
 sequenceDiagram
     actor 고객
-    participant WEB as App.tsx<br/>(React 웹앱)
-    participant FS as Firestore<br/>orders
-    participant DB as lunchbox<br/>_database_node
-    participant RC as lunchbox_robot_node<br/>(RobotController)
-    participant DSR as DSR M0609<br/>+ RG2
-    participant ADMIN as admin_index.html<br/>(관리자 웹)
+    participant WEB as App.tsx
+    participant FS as Firestore
+    participant DB as lunchbox
+    participant RC as lunchbox_robot_node
+    participant DSR as DSR M0609
+    participant ADMIN as admin_index.html
 
     고객->>WEB: 메인 1종 + 서브 최대 3종 선택
     고객->>WEB: 주문 확인
-    WEB->>FS: addDoc(orders, {<br/>status: "pending",<br/>main_dish, sub_dishes,<br/>items})
+    WEB->>FS: addDoc(orders, { status: "pending", main_dish, sub_dishes, items})
 
     FS-->>DB: on_snapshot ADDED 감지
-    DB->>DB: items에서 메뉴 이름 추출<br/>main_dish / sub_dishes 분류
+    DB->>DB: items에서 메뉴 이름 추출 main_dish / sub_dishes 분류
     DB->>FS: update status → "cooking"
-    DB->>RC: /robot_order 토픽 publish<br/>{_key, main_dish, sub_dishes}
+    DB->>RC: /robot_order 토픽 publish {_key, main_dish, sub_dishes}
 
-    RC->>RC: _on_ros_order_msg() →<br/>_on_order_received() →<br/>_order_queue.put(order)
+    RC->>RC: _on_ros_order_msg() → _on_order_received() → _order_queue.put(order)
 
     Note over RC: task_thread가 큐에서 Order 꺼냄
 
     rect rgb(240, 248, 255)
     Note over RC,DSR: 🍱 Stage 1 — TraySetupStage (식판 세팅)
     RC->>DSR: movej(home) → gripper(50)
-    RC->>DSR: movej(tray_storage.upper)<br/>→ movej(tray_storage.lower)
+    RC->>DSR: movej(tray_storage.upper) → movej(tray_storage.lower)
     RC->>DSR: DO1=ON DO2=OFF DO3=OFF → 5mm (식판 파지)
-    RC->>DSR: movej(setting.upper)<br/>→ movej(setting.lower_1)<br/>→ movej(setting.lower_2)
+    RC->>DSR: movej(setting.upper) → movej(setting.lower_1) → movej(setting.lower_2)
     RC->>DSR: DO1=OFF DO2=OFF DO3=ON → 50mm (식판 안착)
     RC->>DSR: movej(setting.lower_3) → gripper(100)
     RC->>DSR: movej(home)
@@ -40,9 +40,9 @@ sequenceDiagram
     Note over RC,DSR: 🥗 Stage 2 — SubDishStage × N (서브 반찬, 최대 3회 반복)
     loop 서브 반찬 N종
         RC->>DSR: movej(home) → gripper(100)
-        RC->>DSR: movej(pre_pick_j, radius=20)<br/>→ movel(pick_l, radius=20)
+        RC->>DSR: movej(pre_pick_j, radius=20) → movel(pick_l, radius=20)
         RC->>DSR: DO1=ON DO2=OFF DO3=ON → 50mm (반찬 집기)
-        RC->>DSR: amovel(up_pick_l, r=10)<br/>→ amovej(pre_place_j, r=10) [비동기 블렌딩]
+        RC->>DSR: amovel(up_pick_l, r=10) → amovej(pre_place_j, r=10) [비동기 블렌딩]
         RC->>DSR: movel(place_l) → gripper(100)
         RC->>DSR: movej(home)
     end
@@ -53,10 +53,10 @@ sequenceDiagram
     RC->>DSR: movej(home) → gripper(100)
     RC->>DSR: movel(tong_approach_l) → DO1=ON DO2=ON DO3=OFF → 30mm (집게 파지)
     RC->>DSR: movel(tong_lift_l) → movel(main_dish_lift_l)
-    Note over RC: ★ 집게만 든 상태에서<br/>J2 baseline 측정 (5샘플)
+    Note over RC: ★ 집게만 든 상태에서 J2 baseline 측정 (5샘플)
     RC->>DSR: movel(main_dish_pick_l) → DO 20mm (반찬 집기)
     RC->>DSR: movel(main_dish_lift_l)
-    Note over RC: ★ J2 delta 비교로 파지 판별<br/>(빈그리퍼/집게/집게+돈까스)
+    Note over RC: ★ J2 delta 비교로 파지 판별 (빈그리퍼/집게/집게+돈까스)
     alt 미파지 감지 (집게 only)
         Note over RC: 재시도: 30mm → pick → 20mm → lift → 재측정
         loop 파지 성공할 때까지
@@ -75,8 +75,8 @@ sequenceDiagram
     RC->>DSR: movel(above_l) → DO 5mm (스쿱 파지)
     RC->>DSR: movel(scoop_1~6) [6점 스쿱 경로]
     RC->>DSR: move_periodic [밥 털기 흔들기 × 25회]
-    Note over RC,DSR: ★ set_singular_handling(DR_VAR_VEL)<br/>가변속 특이점 통과 모드 ON
-    RC->>DSR: movel(transit_l) → movel(place_pre_l)<br/>→ movel(place_down_l) → movel(place_pre2_l)<br/>→ movel(home_ready_l) → movel(place_up_l)<br/>→ movel(back_l) → movel(back_lean_l)
+    Note over RC,DSR: ★ set_singular_handling(DR_VAR_VEL) 가변속 특이점 통과 모드 ON
+    RC->>DSR: movel(transit_l) → movel(place_pre_l) → movel(place_down_l) → movel(place_pre2_l) → movel(home_ready_l) → movel(place_up_l) → movel(back_l) → movel(back_lean_l)
     Note over RC,DSR: set_singular_handling(DR_AVOID) 복원
     RC->>DSR: DO 100mm → movel(home_ready_l) → movej(home)
     end
@@ -90,13 +90,13 @@ sequenceDiagram
     RC->>DSR: DO 50mm (식판 안착) → movel(p013_l) (후퇴)
     end
 
-    RC->>RC: _process_order() 완료<br/>sm.update_status(state=IDLE)
+    RC->>RC: _process_order() 완료 sm.update_status(state=IDLE)
     RC->>FS: mark_completed(key) → status = "completed"
     FS-->>WEB: onSnapshot 실시간 반영
     WEB-->>고객: ✅ 완료 화면 + 픽업 번호
 
     loop 1초마다 (전 과정)
-        RC-->>+ADMIN: /robot_status (Firebase RTDB)<br/>→ admin 카드 갱신
+        RC-->>+ADMIN: /robot_status (Firebase RTDB) → admin 카드 갱신
     end
 
     loop 0.2초마다
@@ -112,7 +112,7 @@ sequenceDiagram
 sequenceDiagram
     actor 관리자
     participant ADMIN as admin_index.html
-    participant FB as Firebase RTDB<br/>/command
+    participant FB as Firebase RTDB
     participant RC as RobotController
     participant SM as RobotStateManager
     participant DSR as DSR API
@@ -128,7 +128,7 @@ sequenceDiagram
     RC->>SM: update_status(state=IDLE, current_task="⏸️ 일시정지됨")
     RC->>DSR: do_stop() — move_stop(3) [즉시 감속 정지]
 
-    Note over RC,SM: 작업 스레드는 다음 _movej 호출 시<br/>wait_if_paused() 에서 블로킹
+    Note over RC,SM: 작업 스레드는 다음 _movej 호출 시 wait_if_paused() 에서 블로킹
 
     관리자->>ADMIN: ▶️ 재개 버튼 클릭
     ADMIN->>FB: set /command { type: "resume", timestamp }
@@ -138,7 +138,7 @@ sequenceDiagram
     RC->>SM: clear_emergency_stop() (if stopped)
 
     alt Stage 5 (Delivery) 중이었던 경우
-        Note over RC: 식판/홀더 파지 상태 불확실<br/>토크 측정으로 자동 판별
+        Note over RC: 식판/홀더 파지 상태 불확실 토크 측정으로 자동 판별
         RC->>RC: _handle_delivery_estop_resume()
         RC->>DSR: get_external_torque() × 5회 평균
         RC->>RC: TorqueClassifier.predict()
@@ -146,10 +146,10 @@ sequenceDiagram
             RC->>DSR: gripper(100) → movej(home)
             Note over RC: 1단계부터 재시작 큐 삽입
         else 책받침 또는 책받침+가득식판
-            RC->>DSR: gripper(5) → 홀더 초기위치 복귀<br/>(p012 → p011 → ... → p006)
+            RC->>DSR: gripper(5) → 홀더 초기위치 복귀 (p012 → p011 → ... → p006)
         end
     else 다른 Stage 중
-        Note over RC,SM: pause_event.wait() 가 풀려<br/>작업 스레드가 자동 재개
+        Note over RC,SM: pause_event.wait() 가 풀려 작업 스레드가 자동 재개
     end
 ```
 
@@ -159,7 +159,7 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant CM as collision_monitor<br/>(1초 주기)
+    participant CM as collision_monitor
     participant RC_API as RobotClient
     participant DSR as DSR API
     participant SM as RobotStateManager
@@ -175,14 +175,14 @@ sequenceDiagram
             CM->>DSR: get_tool_force()
             CM->>DSR: get_external_torque()
 
-            alt state ∈ {3,5,6,7} OR<br/>합력 > 80N OR<br/>Z축 > 60N OR<br/>관절 토크 > 80Nm
+            alt state가 3,5,6,7 중 하나 OR 합력 80N 초과 OR Z축 60N 초과 OR 관절 토크 80Nm 초과
                 CM->>SM: trigger_emergency_stop()
                 CM->>RC_API: do_stop() (3초 대기 후 홈 이동)
                 CM->>SM: update_status(state=ERROR, "🚨 충돌 감지: ...")
                 CM->>FB: upload_robot_status(state=collision)
 
                 FB-->>ADMIN: 실시간 반영
-                Note over ADMIN: 빨간색 오버레이 표시<br/>"🔄 초기화 및 처음부터 다시 시작" 버튼
+                Note over ADMIN: 빨간색 오버레이 표시 "🔄 초기화 및 처음부터 다시 시작" 버튼
             end
         end
     end
@@ -196,16 +196,16 @@ sequenceDiagram
 sequenceDiagram
     actor 관리자
     participant ADMIN as admin_index.html
-    participant FB as Firebase RTDB<br/>/test_command
+    participant FB as Firebase RTDB
     participant RC as RobotController
     participant STAGES as 5단계 스테이지
 
     관리자->>ADMIN: 🧪 테스트모드 패널 열기
-    관리자->>ADMIN: 시나리오 선택<br/>(스테이지 범위 / 집게 / 메인반찬 / 밥 / 배달)
+    관리자->>ADMIN: 시나리오 선택 (스테이지 범위 / 집게 / 메인반찬 / 밥 / 배달)
     관리자->>ADMIN: 반복 횟수 1~10회 설정
     관리자->>ADMIN: ▶ 테스트 실행
 
-    ADMIN->>FB: set /test_command {<br/>scenario, repeat, stage_from,<br/>stage_to, main_dish, sub_dishes,<br/>timestamp}
+    ADMIN->>FB: set /test_command { scenario, repeat, stage_from, stage_to, main_dish, sub_dishes, timestamp}
 
     FB-->>RC: listen_test_command() 콜백
     RC->>RC: _on_test_command_received(payload)
@@ -216,7 +216,7 @@ sequenceDiagram
     RC->>RC: _run_test_scenario(payload)
     loop repeat 횟수만큼
         alt scenario == "stage_only"
-            RC->>STAGES: _process_test_stages(<br/>stage_from~stage_to)
+            RC->>STAGES: _process_test_stages( stage_from~stage_to)
         else scenario == "tong_pick_place"
             RC->>STAGES: _run_tong_pick_place()
         else scenario == "main_dish_full"
@@ -236,7 +236,7 @@ sequenceDiagram
     end
 
     RC->>RC: sm.update_status(state=IDLE, "대기 중")
-    RC-->>ADMIN: 다음 status 업로드 시 idle 표시<br/>→ ⏹ 버튼 숨김
+    RC-->>ADMIN: 다음 status 업로드 시 idle 표시 → ⏹ 버튼 숨김
 ```
 
 ---
@@ -251,7 +251,7 @@ sequenceDiagram
     participant TC as TorqueClassifier
 
     ST->>DSR: 집게 30mm 파지 → tong_lift_l
-    ST->>DSR: movel(main_dish_lift_l)<br/>[집게만 든 상태]
+    ST->>DSR: movel(main_dish_lift_l) [집게만 든 상태]
 
     Note over ST,DSR: ★ baseline 측정 위치
 
@@ -270,14 +270,14 @@ sequenceDiagram
         ST->>RC: get_external_torque()
         RC-->>ST: J2 samples
     end
-    ST->>ST: mean_j2 = mean(samples)<br/>boundary = baseline_j2 + DELTA/2<br/>(DELTA = 0.25)
+    ST->>ST: mean_j2 = mean(samples) boundary = baseline_j2 + DELTA/2 (DELTA = 0.25)
 
     alt mean_j2 < boundary
-        Note over ST: 미파지 (집게만)<br/>→ 재시도
+        Note over ST: 미파지 (집게만) → 재시도
         ST->>DSR: gripper 30mm → movel(pick_l) → gripper 20mm → lift_l
         ST->>ST: 다시 측정
     else mean_j2 ≥ boundary
-        Note over ST: 파지 성공 (집게+돈까스)<br/>→ 다음 단계
+        Note over ST: 파지 성공 (집게+돈까스) → 다음 단계
         ST->>DSR: movel(tray_approach_l) → ... → 투하
     end
 ```
