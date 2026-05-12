@@ -61,6 +61,7 @@ def main(args=None) -> None:
             move_periodic,
         )
         from DSR_ROBOT2 import ROBOT_MODE_AUTONOMOUS
+        from DSR_ROBOT2 import (set_singular_handling, DR_VAR_VEL, DR_AVOID)
         from DR_common2 import posj, posx
     except ImportError as e:
         node.get_logger().error(f"DSR_ROBOT2 import 실패: {e}")
@@ -100,6 +101,10 @@ def main(args=None) -> None:
         release_force=release_force,
         # 주기적 이동
         move_periodic=move_periodic,
+        # singularity handling
+        set_singular_handling=set_singular_handling,
+        DR_VAR_VEL=DR_VAR_VEL,
+        DR_AVOID = DR_AVOID
     )
 
     use_firebase = os.path.exists(SERVICE_ACCOUNT_KEY)

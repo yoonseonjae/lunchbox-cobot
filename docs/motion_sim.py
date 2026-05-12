@@ -7,6 +7,7 @@
 import asyncio
 import json
 import math
+import os
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 import threading
@@ -23,7 +24,13 @@ except ImportError:
     ROS_AVAILABLE = False
 
 # ── 경로 설정 ─────────────────────────────────────────────────────────────────
-URDF_DIR  = Path('/home/yoon/cobot_ws/m0609_rg2_combined')
+# COBOT_WS_SRC 환경변수를 설정하면 어떤 PC에서도 동작합니다.
+# 예) export COBOT_WS_SRC=/home/<user>/cobot_ws/src
+_COBOT_WS_SRC = Path(os.environ.get(
+    'COBOT_WS_SRC',
+    str(Path(__file__).parent.parent),
+))
+URDF_DIR  = _COBOT_WS_SRC / 'm0609_rg2_combined'
 URDF_FILE = 'm0609_rg2_web.urdf'
 
 HTTP_HOST = 'localhost'

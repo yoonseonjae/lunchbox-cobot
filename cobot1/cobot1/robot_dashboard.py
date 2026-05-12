@@ -19,10 +19,16 @@ from dsr_msgs2.srv import (
 from aiohttp import web
 
 # ── URDF / Mesh file paths ────────────────────────────────────────
+# COBOT_WS_SRC 환경변수를 설정하면 어떤 PC에서도 동작합니다.
+# 예) export COBOT_WS_SRC=/home/<user>/cobot_ws/src
+_COBOT_WS_SRC = os.environ.get(
+    'COBOT_WS_SRC',
+    os.path.join(os.path.expanduser('~'), 'cobot_ws', 'src'),
+)
 _URDF_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                          '..', '..', 'm0609_rg2_combined')
 if not os.path.isdir(_URDF_DIR):
-    _URDF_DIR = '/home/rokey/cobot_ws/src/m0609_rg2_combined'
+    _URDF_DIR = os.path.join(_COBOT_WS_SRC, 'm0609_rg2_combined')
 _URDF_FILE = os.path.join(_URDF_DIR, 'm0609_rg2_web.urdf')
 _MESH_DIR  = os.path.join(_URDF_DIR, 'meshes')
 
@@ -30,7 +36,7 @@ _MESH_DIR  = os.path.join(_URDF_DIR, 'meshes')
 _ADMIN_HTML = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                            '..', '..', 'lunchbox_web', 'admin_index.html')
 if not os.path.isfile(_ADMIN_HTML):
-    _ADMIN_HTML = '/home/rokey/cobot_ws/src/lunchbox_web/admin_index.html'
+    _ADMIN_HTML = os.path.join(_COBOT_WS_SRC, 'lunchbox_web', 'admin_index.html')
 
 # ── Global state (thread-safe) ────────────────────────────────────
 _lock = threading.Lock()

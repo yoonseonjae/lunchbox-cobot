@@ -142,7 +142,7 @@ class BaseStage(ABC):
                 return False
         if label: self._tick(label)
         return self._ok()
-    
+
     def _amovel(self, coords: List[float], label: str = "", radius: Optional[float] = None) -> bool:
         """비동기 작업 공간 직선 이동(do_amovel)을 실행하고 완료를 폴링으로 대기한다.
 
@@ -337,3 +337,14 @@ class BaseStage(ABC):
         result = get_classifier().predict_class_from_mean(samples)
         self._logger.info(f"토크 분류 결과: {result} (샘플 {len(samples)}개)")
         return result
+    
+    def _set_singularity_handling(self, enable: bool) -> None:
+        """특이점 회피 모드를 활성화하거나 비활성화한다. 활성화 시 로봇이 특이점에 접근할 때 자동으로 회피 동작을 수행한다.
+
+        Args:
+            enable (bool): True면 활성화, False면 비활성화.
+        """
+        try:
+            self.rc.do_set_singular_handling(enable)
+        except Exception as e:
+            self._logger.warn(f"특이점 회피 설정 실패: {e}")

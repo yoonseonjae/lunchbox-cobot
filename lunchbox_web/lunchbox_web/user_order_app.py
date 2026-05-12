@@ -17,6 +17,7 @@
 ==============================================================================
 """
 
+import os
 import time
 import threading
 import tkinter as tk
@@ -26,9 +27,15 @@ import firebase_admin
 from firebase_admin import credentials, db
 
 # ============================================================================
-# Firebase 설정 (본인 환경에 맞게 수정)
+# Firebase 설정
 # ============================================================================
-SERVICE_ACCOUNT_KEY_PATH = "/home/yoon/cobot_ws/cobot1/config/serviceAccountKey.json"
+# SERVICE_ACCOUNT_KEY_PATH 환경변수를 설정하거나, .env 파일을 참고하세요.
+# 예) export SERVICE_ACCOUNT_KEY_PATH=/home/<user>/cobot_ws/src/cobot1/config/serviceAccountKey.json
+SERVICE_ACCOUNT_KEY_PATH = os.environ.get(
+    'SERVICE_ACCOUNT_KEY_PATH',
+    os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                 '..', '..', 'cobot1', 'config', 'serviceAccountKey.json'),
+)
 DATABASE_URL = "https://rokey-d3991-default-rtdb.asia-southeast1.firebasedatabase.app"
 
 # ============================================================================

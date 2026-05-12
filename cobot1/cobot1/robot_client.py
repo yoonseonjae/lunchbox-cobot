@@ -50,6 +50,9 @@ class RobotClient:
         self._drs_set_desired_force:      Optional[Callable[..., Any]] = None
         self._drs_release_force:          Optional[Callable[..., Any]] = None
         self._drs_move_periodic:          Optional[Callable[..., Any]] = None
+        self._drs_set_singular_handling:  Optional[Callable[..., Any]] = None
+        self._drs_DR_VAR_VEL:             Optional[Any] = None
+        self._drs_DR_AVOID:               Optional[Any] = None
 
     def inject(self, movej, movel, mwait, amovej, amovel,
                set_digital_output, get_digital_input,
@@ -57,7 +60,8 @@ class RobotClient:
                get_robot_state, get_tool_force, get_external_torque,
                posj, posx, DR_BASE,
                task_compliance_ctrl=None, release_compliance_ctrl=None,
-               set_desired_force=None, release_force=None, move_periodic=None):
+               set_desired_force=None, release_force=None, move_periodic=None,
+               set_singular_handling=None, DR_VAR_VEL=None, DR_AVOID=None):
         """DSR_ROBOT2 함수들을 내부 속성에 주입한다. 로봇 노드 시작 시 한 번만 호출.
 
         Args:
@@ -101,7 +105,9 @@ class RobotClient:
         self._drs_set_desired_force = set_desired_force
         self._drs_release_force = release_force
         self._drs_move_periodic = move_periodic
-
+        self._drs_set_singular_handling = set_singular_handling
+        self._drs_DR_VAR_VEL = DR_VAR_VEL
+        self._drs_DR_AVOID = DR_AVOID
     def wait(self, sec: float) -> None:
         """sec초만큼 현재 스레드를 블로킹한다.
 
@@ -333,3 +339,14 @@ class RobotClient:
         """
         if self._drs_move_periodic:
             self._drs_move_periodic(amp, period_ms, atime, count)
+
+    def do_set_singular_handling(self, enable: bool) -> None:
+        """특이점 회피 설정을 켜거나 끈다. inject 전이면 아무 동작 없음.
+
+        Args:
+            enable (bool): True면 켜고 False면 끈다.
+        Returns:
+            None
+        """
+        if self._drs_set_singular_handling:
+            self._drs_set_singular_handling(self._drs_DR_VAR_VEL, self._drs_DR_AVOID, 1 if enable else 0)

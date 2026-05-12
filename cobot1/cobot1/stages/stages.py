@@ -289,6 +289,7 @@ class RiceStage(BaseStage):
         Returns:
             StageResult: SUCCESS | STOPPED | ERROR.
         """
+        self._set_singularity_handling(enable=True)
         self.sm.update_status(current_task="🍚 [4/5] 밥 담기")
         c4   = self.cm.stage(4)
         home = self.cm.home_joint()
@@ -356,6 +357,8 @@ class RiceStage(BaseStage):
                 return self.execute()
             self._logger.error(f"오류: {e}")
             return StageResult.ERROR
+        finally:
+            self._set_singularity_handling(enable=False)
 
 
 # ============================================================================
