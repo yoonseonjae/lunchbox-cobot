@@ -346,15 +346,15 @@ elif cmd_type == "gripper_open":
 
 ## 8. 테스트 커버리지 범위
 
-| 모듈 | 커버 여부 | 미커버 범위 |
+| 모듈 | 커버 여부 | 검증 방법 |
 |------|:---------:|-----------|
 | `robot_client.py` | ✅ 주요 경로 전체 | - |
 | `state_manager.py` | ✅ 전체 | - |
 | `mock_order_repository.py` | ✅ 전체 | - |
 | `robot_controller.py` | ✅ _handle_command, _execute_cmd, _on_order_received | _task_loop, _status_upload_loop, _collision_monitor_loop (스레드 루프) |
-| `stages/base_stage.py` | ❌ | 통합 테스트 필요 |
-| `stages/stages.py` | ❌ | 통합 테스트 필요 |
-| `coordinate_manager.py` | ❌ | YAML 파일 의존 |
-| `lunchbox_robot_node.py` | ❌ | ROS2 노드 생성 필요 |
+| `stages/base_stage.py` | 🧪 대시보드 테스트 | `admin_index.html` → 🧪 테스트모드 → 스테이지 범위 실행 |
+| `stages/stages.py` | 🧪 대시보드 테스트 | `admin_index.html` → 🧪 테스트모드 → 시나리오 5종 |
+| `coordinate_manager.py` | 🧪 대시보드 테스트 | YAML 좌표 로드 후 실제 이동 궤적으로 확인 |
+| `lunchbox_robot_node.py` | 🚀 E2E 테스트 | `ros2 run` → 홈 이동 완료 → 주문 1건 완료 로그 확인 |
 
-> 스테이지 클래스와 노드 진입점은 실제 좌표 YAML 파일과 ROS2 런타임이 필요하여 통합 테스트로 분류합니다.
+> 스테이지 클래스와 노드 진입점은 관리자 대시보드 🧪 테스트모드(스테이지 범위 실행)와 실제 구동 환경의 E2E 테스트로 검증합니다.
