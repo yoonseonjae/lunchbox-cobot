@@ -1,0 +1,16 @@
+{
+  "hosting": {
+    "public": "figma/dist",  // 이 부분을 반드시 수정해야 합니다!
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}
