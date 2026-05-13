@@ -301,6 +301,24 @@ file:///home/yoon/cobot_ws/src/lunchbox_web/admin_index.html
 
 ---
 
+### 단위 테스트 실행 방법
+
+```bash
+# 전체 테스트 실행
+cd ~/cobot_ws/src
+python3 -m pytest cobot1/test/ -v
+
+# 특정 파일만
+python3 -m pytest cobot1/test/test_robot_client.py -v
+
+# 신규 추가 테스트만
+python3 -m pytest cobot1/test/test_order_model.py -v
+python3 -m pytest cobot1/test/test_state_manager.py::TestPauseResume -v
+
+# 빠른 실패 확인 (첫 번째 실패 시 중단)
+python3 -m pytest cobot1/test/ -v -x
+```
+
 ## 트러블슈팅
 
 | 증상 | 원인/조치 |
