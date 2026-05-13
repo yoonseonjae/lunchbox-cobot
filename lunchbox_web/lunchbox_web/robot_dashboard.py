@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
 ==============================================================================
-나만의 도련님 도시락 - 통합 관리자 웹 서버
+나만의 도련님 도시락 - 통합 관리자 웹 서버 (Flask)
 ==============================================================================
 robot_dashboard.py + camera_stream_server.py 통합본.
 
-단일 aiohttp 서버 (기본 포트 8080):
+단일 Flask 서버 (기본 포트 8080):
   GET /                → 로봇 모니터링 대시보드 (3D URDF + 관절/상태 + CCTV)
   GET /admin           → 주문 관리자 페이지 (admin_index.html)
   GET /events          → SSE – 0.2초마다 로봇 상태 JSON push
@@ -16,13 +16,13 @@ robot_dashboard.py + camera_stream_server.py 통합본.
   GET /urdf/meshes/    → 메시 파일 정적 서빙
 
 실행:
-  ros2 run lunchbox_web lunchbox_admin_server
-  ros2 run lunchbox_web lunchbox_admin_server -- --camera 0 --fps 20 --port 8080
+  ros2 run lunchbox_web robot_dashboard
+  ros2 run lunchbox_web robot_dashboard -- --camera 0 --fps 20 --port 8080
 ==============================================================================
 """
 
 import argparse
-import asyncio
+import io
 import json
 import math
 import os
@@ -39,8 +39,9 @@ from std_msgs.msg import UInt8MultiArray
 from dsr_msgs2.srv import (
     GetCurrentPosx, GetRobotMode, GetRobotState,
     GetRobotSpeedMode, GetLastAlarm,
+    GetExternalTorque, GetToolForce,
 )
-from aiohttp import web
+from flask import Flask, Response, send_file, send_from_directory, stream_with_context
 
 # cv2 선택적 import (카메라 없이도 대시보드 동작)
 _CV2_OK = False
@@ -125,6 +126,8 @@ robot_state: dict = {
     "last_alarm":        None,
     "errors":            [],
     "digital_io":        [0] * 16,
+    "external_torque":   [0.0] * 6,
+    "tool_force":        [0.0] * 6,
     "last_update":       0.0,
 }
 
@@ -143,11 +146,13 @@ class RobotDashboardNode(Node):
         self.create_subscription(
             UInt8MultiArray,   "/dsr01/io/ctrl_box_digital_input_state",   self._cb_io,     10)
 
-        self._posx_cli  = self.create_client(GetCurrentPosx,    "/dsr01/aux_control/get_current_posx")
-        self._mode_cli  = self.create_client(GetRobotMode,      "/dsr01/system/get_robot_mode")
-        self._state_cli = self.create_client(GetRobotState,     "/dsr01/system/get_robot_state")
-        self._speed_cli = self.create_client(GetRobotSpeedMode, "/dsr01/system/get_robot_speed_mode")
-        self._alarm_cli = self.create_client(GetLastAlarm,      "/dsr01/system/get_last_alarm")
+        self._posx_cli       = self.create_client(GetCurrentPosx,    "/dsr01/aux_control/get_current_posx")
+        self._mode_cli       = self.create_client(GetRobotMode,      "/dsr01/system/get_robot_mode")
+        self._state_cli      = self.create_client(GetRobotState,     "/dsr01/system/get_robot_state")
+        self._speed_cli      = self.create_client(GetRobotSpeedMode, "/dsr01/system/get_robot_speed_mode")
+        self._alarm_cli      = self.create_client(GetLastAlarm,      "/dsr01/system/get_last_alarm")
+        self._ext_torque_cli = self.create_client(GetExternalTorque, "/dsr01/aux_control/get_external_torque")
+        self._tool_force_cli = self.create_client(GetToolForce,      "/dsr01/aux_control/get_tool_force")
 
         self.create_timer(2.0, self._poll)
         self.create_timer(3.0, self._check_connection)
@@ -195,11 +200,13 @@ class RobotDashboardNode(Node):
             robot_state["digital_io"] = (list(msg.data) + [0]*16)[:16]
 
     def _poll(self):
-        self._fire(self._posx_cli,  GetCurrentPosx.Request(),    self._done_posx, ref=0)
-        self._fire(self._mode_cli,  GetRobotMode.Request(),      self._done_mode)
-        self._fire(self._state_cli, GetRobotState.Request(),     self._done_state)
-        self._fire(self._speed_cli, GetRobotSpeedMode.Request(), self._done_speed)
-        self._fire(self._alarm_cli, GetLastAlarm.Request(),      self._done_alarm)
+        self._fire(self._posx_cli,       GetCurrentPosx.Request(),    self._done_posx, ref=0)
+        self._fire(self._mode_cli,       GetRobotMode.Request(),      self._done_mode)
+        self._fire(self._state_cli,      GetRobotState.Request(),     self._done_state)
+        self._fire(self._speed_cli,      GetRobotSpeedMode.Request(), self._done_speed)
+        self._fire(self._alarm_cli,      GetLastAlarm.Request(),      self._done_alarm)
+        self._fire(self._ext_torque_cli, GetExternalTorque.Request(), self._done_ext_torque)
+        self._fire(self._tool_force_cli, GetToolForce.Request(),      self._done_tool_force, ref=0)
 
     def _fire(self, client, req, cb, **kwargs):
         if not client.service_is_ready():
@@ -257,128 +264,150 @@ class RobotDashboardNode(Node):
         except Exception:
             pass
 
+    def _done_ext_torque(self, f):
+        try:
+            res = f.result()
+            if res.success:
+                with _lock:
+                    robot_state["external_torque"] = list(res.ext_torque)
+        except Exception:
+            pass
 
-# ── HTTP 핸들러 ───────────────────────────────────────────────────
-async def handle_index(request):
-    return web.Response(text=_HTML, content_type="text/html", charset="utf-8")
+    def _done_tool_force(self, f):
+        try:
+            res = f.result()
+            if res.success:
+                with _lock:
+                    robot_state["tool_force"] = list(res.tool_force)
+        except Exception:
+            pass
 
 
-async def handle_admin(request):
+# ── Flask 앱 & 라우트 ────────────────────────────────────────────
+app = Flask(__name__)
+app.config['PROPAGATE_EXCEPTIONS'] = True
+
+
+@app.after_request
+def _cors(resp):
+    resp.headers['Access-Control-Allow-Origin'] = '*'
+    return resp
+
+
+@app.route('/')
+def handle_index():
+    return Response(_HTML, mimetype='text/html; charset=utf-8')
+
+
+@app.route('/admin')
+@app.route('/admin_index.html')
+def handle_admin():
     if os.path.isfile(_ADMIN_HTML):
-        return web.FileResponse(_ADMIN_HTML, headers={"Access-Control-Allow-Origin": "*"})
-    return web.Response(status=404, text="admin_index.html not found")
+        return send_file(_ADMIN_HTML, mimetype='text/html')
+    return Response('admin_index.html not found', status=404)
 
 
-async def handle_sse(request):
+@app.route('/events')
+def handle_sse():
     """Server-Sent Events: 0.2초마다 로봇 상태 JSON push"""
-    resp = web.StreamResponse(headers={
-        "Content-Type":                "text/event-stream",
-        "Cache-Control":               "no-cache",
-        "Connection":                  "keep-alive",
-        "X-Accel-Buffering":           "no",
-        "Access-Control-Allow-Origin": "*",
-    })
-    await resp.prepare(request)
-    try:
+    def _generate():
         while True:
             with _lock:
                 payload = json.dumps(robot_state)
-            await resp.write(f"data: {payload}\n\n".encode())
-            await asyncio.sleep(0.2)
-    except (ConnectionResetError, asyncio.CancelledError, Exception):
-        pass
-    return resp
+            yield f'data: {payload}\n\n'
+            time.sleep(0.2)
+    return Response(
+        stream_with_context(_generate()),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control':     'no-cache',
+            'X-Accel-Buffering': 'no',
+            'Connection':        'keep-alive',
+        },
+    )
 
 
-async def handle_state(request):
+@app.route('/state')
+def handle_state():
     with _lock:
         data = dict(robot_state)
-    return web.Response(text=json.dumps(data, indent=2), content_type="application/json")
+    return Response(json.dumps(data, indent=2), mimetype='application/json')
 
 
-async def handle_urdf(request):
-    if os.path.isfile(_URDF_FILE):
-        return web.FileResponse(_URDF_FILE, headers={"Access-Control-Allow-Origin": "*"})
-    return web.Response(status=404, text="URDF not found")
+@app.route('/urdf/m0609_rg2.urdf')
+def handle_urdf():
+    if not os.path.isfile(_URDF_FILE):
+        return Response('URDF not found', status=404)
+    import re
+    with open(_URDF_FILE, 'r', encoding='utf-8') as f:
+        content = f.read()
+    # URDF 내부의 절대 URL을 상대 경로로 교체
+    # urdf-loader 는 URDF base(/urdf/) 기준으로 경로를 결합하므로
+    # 'meshes/...' 형태의 상대경로를 써야 /urdf/meshes/... 로 정상 해석됨
+    content = re.sub(r'https?://[^"\']+/urdf/meshes/', 'meshes/', content)
+    return Response(content, mimetype='application/xml')
 
 
-async def handle_video_feed(request):
+@app.route('/urdf/meshes/<path:filename>')
+def handle_mesh(filename):
+    if os.path.isdir(_MESH_DIR):
+        return send_from_directory(_MESH_DIR, filename)
+    return Response('mesh dir not found', status=404)
+
+
+@app.route('/m0609_rg2_combined/meshes/<path:filename>')
+def handle_mesh2(filename):
+    if os.path.isdir(_MESH_DIR):
+        return send_from_directory(_MESH_DIR, filename)
+    return Response('mesh dir not found', status=404)
+
+
+@app.route('/video_feed')
+def handle_video_feed():
     """MJPEG 스트림 – 브라우저 <img src="/video_feed"> 로 직접 사용"""
     if not _CV2_OK or _camera is None:
-        return web.Response(status=503, text="카메라 없음 (--camera 옵션 확인)")
+        return Response('카메라 없음 (--camera 옵션 확인)', status=503)
 
-    resp = web.StreamResponse()
-    resp.content_type = "multipart/x-mixed-replace; boundary=frame"
-    await resp.prepare(request)
-
-    interval = 1.0 / max(_cam_fps, 1)
-    try:
+    def _generate():
+        interval = 1.0 / max(_cam_fps, 1)
         while True:
             frame = _camera.get_frame()
             if frame is None:
-                await asyncio.sleep(0.05)
+                time.sleep(0.05)
                 continue
             ok, buf = cv2.imencode(
-                ".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), _cam_quality]
+                '.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), _cam_quality]
             )
             if not ok:
-                await asyncio.sleep(interval)
+                time.sleep(interval)
                 continue
-            jpeg  = buf.tobytes()
-            chunk = (
-                b"--frame\r\n"
-                b"Content-Type: image/jpeg\r\n"
-                b"Content-Length: " + str(len(jpeg)).encode() + b"\r\n"
-                b"\r\n" + jpeg + b"\r\n"
+            jpeg = buf.tobytes()
+            yield (
+                b'--frame\r\n'
+                b'Content-Type: image/jpeg\r\n'
+                b'Content-Length: ' + str(len(jpeg)).encode() + b'\r\n'
+                b'\r\n' + jpeg + b'\r\n'
             )
-            await resp.write(chunk)
-            await asyncio.sleep(interval)
-    except (asyncio.CancelledError, ConnectionResetError, Exception):
-        pass
-    return resp
+            time.sleep(interval)
+
+    return Response(
+        stream_with_context(_generate()),
+        mimetype='multipart/x-mixed-replace; boundary=frame',
+    )
 
 
-async def handle_snapshot(request):
+@app.route('/snapshot')
+def handle_snapshot():
     """단일 JPEG 스냅샷"""
     if not _CV2_OK or _camera is None:
-        return web.Response(status=503, text="카메라 없음")
+        return Response('카메라 없음', status=503)
     frame = _camera.get_frame()
     if frame is None:
-        return web.Response(status=503, text="프레임 없음")
-    ok, buf = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), _cam_quality])
+        return Response('프레임 없음', status=503)
+    ok, buf = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), _cam_quality])
     if not ok:
-        return web.Response(status=500, text="인코딩 실패")
-    return web.Response(body=buf.tobytes(), content_type="image/jpeg")
-
-
-@web.middleware
-async def cors_middleware(request, handler):
-    try:
-        resp = await handler(request)
-        if resp is not None:
-            resp.headers["Access-Control-Allow-Origin"] = "*"
-        return resp
-    except web.HTTPException as ex:
-        if ex.headers is None:
-            ex.headers = {}
-        ex.headers["Access-Control-Allow-Origin"] = "*"
-        raise
-
-
-def make_app() -> web.Application:
-    app = web.Application(middlewares=[cors_middleware])
-    app.router.add_get("/",                    handle_index)
-    app.router.add_get("/admin",               handle_admin)
-    app.router.add_get("/admin_index.html",    handle_admin)
-    app.router.add_get("/events",              handle_sse)
-    app.router.add_get("/state",               handle_state)
-    app.router.add_get("/urdf/m0609_rg2.urdf", handle_urdf)
-    app.router.add_get("/video_feed",          handle_video_feed)
-    app.router.add_get("/snapshot",            handle_snapshot)
-    if os.path.isdir(_MESH_DIR):
-        app.router.add_static("/urdf/meshes",               _MESH_DIR)
-        app.router.add_static("/m0609_rg2_combined/meshes", _MESH_DIR)
-    return app
+        return Response('인코딩 실패', status=500)
+    return send_file(io.BytesIO(buf.tobytes()), mimetype='image/jpeg')
 
 
 # ── 임베딩 대시보드 HTML ──────────────────────────────────────────
@@ -400,7 +429,7 @@ nav a:hover{border-color:var(--green);color:var(--green)}
 #conn-badge{padding:3px 14px;border-radius:20px;font-size:.78rem;background:#002a18;color:var(--green);border:1px solid var(--green);transition:all .3s}
 #conn-badge.disc{background:#2a0010;color:var(--red);border-color:var(--red)}
 #upd{color:var(--muted);font-size:.78rem;white-space:nowrap}
-main{padding:16px;display:grid;gap:14px;grid-template-columns:220px 1fr;grid-template-rows:420px auto auto auto auto}
+main{padding:16px;display:grid;gap:14px;grid-template-columns:220px 1fr;grid-template-rows:420px auto auto auto auto auto}
 #viewer3d{grid-column:1/-1;grid-row:1;position:relative;overflow:hidden;border-radius:8px;background:#0a0a1a;border:1px solid var(--border)}
 #viewer3d canvas{width:100%!important;height:100%!important;display:block}
 #viewer3d .v-label{position:absolute;top:10px;left:14px;font-size:.7rem;color:var(--muted);letter-spacing:2px;text-transform:uppercase;pointer-events:none;z-index:1}
@@ -446,7 +475,14 @@ main{padding:16px;display:grid;gap:14px;grid-template-columns:220px 1fr;grid-tem
 .ioled{aspect-ratio:1;border-radius:50%;background:#13132a;border:1px solid #2a2a4a;display:flex;align-items:center;justify-content:center;font-size:.58rem;color:var(--muted);transition:all .2s}
 .ioled.on{background:radial-gradient(circle,#00e87a 0%,#00a055 60%,#002a18 100%);border-color:var(--green);box-shadow:0 0 7px var(--green);color:#fff}
 #alarm-box{font-size:.78rem;color:var(--amber);margin-top:4px;word-break:break-all;line-height:1.5}
-#cam{grid-column:1/-1;grid-row:5}
+#force{grid-column:1/-1;grid-row:5}
+.fgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.frow{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+.fname{font-size:.7rem;color:var(--muted);width:28px;flex-shrink:0}
+.fbg{flex:1;height:7px;background:#15152e;border-radius:4px;overflow:hidden}
+.fbar{height:100%;border-radius:4px;transition:width .2s;min-width:2px}
+.fval{font-size:.7rem;width:68px;text-align:right;flex-shrink:0}
+#cam{grid-column:1/-1;grid-row:6}
 .cam-wrap{display:flex;gap:16px;align-items:flex-start}
 .cam-feed-box{flex:1;position:relative;min-height:120px;background:#0a0a1a;border-radius:6px;border:1px solid var(--border);overflow:hidden}
 #cam-img{width:100%;display:block;border-radius:6px}
@@ -457,9 +493,9 @@ main{padding:16px;display:grid;gap:14px;grid-template-columns:220px 1fr;grid-tem
 .cam-badge.on{border-color:var(--green);color:var(--green);background:#002a18}
 .cam-badge.off{border-color:var(--red);color:var(--red);background:#2a0010}
 @media(max-width:1000px){
-  main{grid-template-columns:1fr;grid-template-rows:350px auto auto auto auto auto auto}
+  main{grid-template-columns:1fr;grid-template-rows:350px auto auto auto auto auto auto auto}
   #viewer3d{grid-row:1}#status{grid-row:2}#joints{grid-column:1;grid-row:3}#vel{grid-column:1;grid-row:4}
-  #cart{grid-row:5}#bottom{grid-column:1;grid-row:6;grid-template-columns:1fr}#cam{grid-row:7}
+  #cart{grid-row:5}#bottom{grid-column:1;grid-row:6;grid-template-columns:1fr}#force{grid-column:1;grid-row:7}#cam{grid-row:8}
   .cam-wrap{flex-direction:column}.cam-info{min-width:unset;width:100%}
 }
 </style>
@@ -541,7 +577,22 @@ main{padding:16px;display:grid;gap:14px;grid-template-columns:220px 1fr;grid-tem
     </div>
   </div>
 
-  <!-- Row 5: CCTV 카메라 -->
+  <!-- Row 5: 외력 감지 -->
+  <div class="panel" id="force">
+    <h2>&#9889; 외력 감지</h2>
+    <div class="fgrid">
+      <div>
+        <div style="font-size:.7rem;color:var(--muted);margin-bottom:8px;letter-spacing:1px">TCP 외력 (N / Nm)</div>
+        <div id="frows"></div>
+      </div>
+      <div>
+        <div style="font-size:.7rem;color:var(--muted);margin-bottom:8px;letter-spacing:1px">관절 외부 토크 (Nm)</div>
+        <div id="etrows"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Row 6: CCTV 카메라 -->
   <div class="panel" id="cam">
     <h2>&#128247; CCTV 라이브 카메라</h2>
     <div class="cam-wrap">
@@ -651,6 +702,22 @@ for(var i=0;i<16;i++){
   l.className='ioled';l.id='io'+i;l.title='DI'+(i+1);l.textContent=i+1;
   iogrid.appendChild(l);
 }
+var frows=document.getElementById('frows');
+var etrows=document.getElementById('etrows');
+var FNAMES=['Fx','Fy','Fz','Tx','Ty','Tz'];
+var FMAX=[50,50,100,20,20,20];
+for(var i=0;i<6;i++){
+  var fr=document.createElement('div');fr.className='frow';
+  fr.innerHTML='<span class="fname">'+FNAMES[i]+'</span>'
+    +'<div class="fbg"><div class="fbar" id="fbar'+i+'" style="width:0%;background:var(--red)"></div></div>'
+    +'<span class="fval" id="fval'+i+'" style="color:var(--red)">0.00'+(i<3?'N':'Nm')+'</span>';
+  frows.appendChild(fr);
+  var etr=document.createElement('div');etr.className='frow';
+  etr.innerHTML='<span class="fname">'+JN[i]+'</span>'
+    +'<div class="fbg"><div class="fbar" id="etbar'+i+'" style="width:0%;background:var(--amber)"></div></div>'
+    +'<span class="fval" id="etval'+i+'" style="color:var(--amber)">0.00Nm</span>';
+  etrows.appendChild(etr);
+}
 
 // ── 렌더링 함수 ───────────────────────────────────────────────────
 function setGauge(i,deg,lim){
@@ -728,6 +795,19 @@ function render(d){
   for(var i=0;i<16;i++){
     var l=document.getElementById('io'+i);
     if(l){if(io[i])l.classList.add('on');else l.classList.remove('on');}
+  }
+
+  var tf=d.tool_force||[];
+  var et=d.external_torque||[];
+  var fmaxArr=[50,50,100,20,20,20];
+  for(var i=0;i<6;i++){
+    var fv=tf[i]||0,ev=et[i]||0;
+    var fpct=Math.min(100,Math.abs(fv)/fmaxArr[i]*100);
+    var epct=Math.min(100,Math.abs(ev)/30*100);
+    var fb=document.getElementById('fbar'+i);if(fb)fb.style.width=fpct+'%';
+    var fvel=document.getElementById('fval'+i);if(fvel)fvel.textContent=fv.toFixed(2)+(i<3?'N':'Nm');
+    var etb=document.getElementById('etbar'+i);if(etb)etb.style.width=epct+'%';
+    var etv=document.getElementById('etval'+i);if(etv)etv.textContent=ev.toFixed(2)+'Nm';
   }
 }
 
@@ -816,14 +896,15 @@ new ResizeObserver(onResize).observe(box);
 def main(args=None):
     global _camera, _cam_fps, _cam_quality
 
-    parser = argparse.ArgumentParser(description="도련님 도시락 통합 관리자 웹 서버")
+    parser = argparse.ArgumentParser(description="도련님 도시락 통합 관리자 웹 서버 (Flask)")
     parser.add_argument("--camera",  type=int, default=-1,   help="USB 카메라 인덱스 (-1: 카메라 없음)")
     parser.add_argument("--width",   type=int, default=1280, help="카메라 가로 해상도")
     parser.add_argument("--height",  type=int, default=720,  help="카메라 세로 해상도")
     parser.add_argument("--fps",     type=int, default=20,   help="목표 FPS")
     parser.add_argument("--quality", type=int, default=70,   help="JPEG 품질 1~100")
     parser.add_argument("--port",    type=int, default=8080, help="HTTP 포트")
-    cli = parser.parse_args()
+    # ros2 run 이 전달하는 --ros-args 이하는 무시
+    cli, _ = parser.parse_known_args()
 
     _cam_fps     = cli.fps
     _cam_quality = cli.quality
@@ -837,40 +918,26 @@ def main(args=None):
     elif cli.camera >= 0 and not _CV2_OK:
         print("[Camera] 경고: opencv-python 미설치 — 카메라 기능 비활성화")
 
-    # ROS2 초기화
+    # ROS2 초기화 → 별도 데몬 스레드에서 spin
     rclpy.init(args=args)
     node = RobotDashboardNode()
     threading.Thread(
         target=lambda: rclpy.spin(node), daemon=True, name="ros_spin"
     ).start()
 
-    # aiohttp 서버
-    async def run():
-        app = make_app()
-        runner = web.AppRunner(app)
-        await runner.setup()
-        site = web.TCPSite(runner, "0.0.0.0", cli.port)
-        await site.start()
-        print("=" * 60)
-        print("  도련님 도시락 - 통합 관리자 웹 서버")
-        print(f"  대시보드   : http://localhost:{cli.port}/")
-        print(f"  주문 관리  : http://localhost:{cli.port}/admin")
-        print(f"  상태 JSON  : http://localhost:{cli.port}/state")
-        if _camera is not None:
-            print(f"  카메라     : http://localhost:{cli.port}/video_feed")
-            print(f"  스냅샷     : http://localhost:{cli.port}/snapshot")
-        print("=" * 60)
-        try:
-            await asyncio.sleep(float("inf"))
-        except (KeyboardInterrupt, asyncio.CancelledError):
-            pass
-        finally:
-            await runner.cleanup()
+    print("=" * 60)
+    print("  도련님 도시락 - 통합 관리자 웹 서버 (Flask)")
+    print(f"  대시보드   : http://localhost:{cli.port}/")
+    print(f"  주문 관리  : http://localhost:{cli.port}/admin")
+    print(f"  상태 JSON  : http://localhost:{cli.port}/state")
+    if _camera is not None:
+        print(f"  카메라     : http://localhost:{cli.port}/video_feed")
+        print(f"  스냅샷     : http://localhost:{cli.port}/snapshot")
+    print("=" * 60)
 
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
     try:
-        loop.run_until_complete(run())
+        # threaded=True → SSE·MJPEG 동시 처리
+        app.run(host='0.0.0.0', port=cli.port, threaded=True, use_reloader=False)
     except KeyboardInterrupt:
         pass
     finally:
